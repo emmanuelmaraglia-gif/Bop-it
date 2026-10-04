@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Aperta, Puxa, Gira</title>
+<!-- Bootstrap 5 -->
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<!-- Fontes -->
+<link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Nunito:wght@600;800&family=Pacifico&family=Special+Elite&family=Rye&family=Creepster&family=Bungee&family=Press+Start+2P&family=Permanent+Marker&family=Lobster&family=Caveat:wght@700&family=Orbitron:wght@800&family=Fredericka+the+Great&family=Chewy&display=swap" rel="stylesheet">
+<!-- Estilos do jogo (depois do Bootstrap para poder personalizar) -->
+<link href="assets/css/style.css" rel="stylesheet">
+</head>
+<body>
+<section class="screen" id="s-home">
+  <h1>Aperta,<br>Puxa, Gira</h1>
+  <div class="how">
+    <p><b>Como jogar:</b> ouça (ou leia) o comando e faça a ação no brinquedo antes do tempo acabar. Cada acerto deixa o jogo mais rápido. Errou ou demorou? Fim de jogo.</p>
+    <div class="how-row"><span class="ic" aria-hidden="true"><div class="toy-btn"></div></span><div><b>Aperta</b>: toque no botão vermelho, no centro do brinquedo.</div></div>
+    <div class="how-row"><span class="ic" aria-hidden="true"><div class="pull"><div class="ring"></div><div class="stem"></div></div></span><div><b>Puxa</b>: arraste a alça azul, no topo, para cima.</div></div>
+    <div class="how-row"><span class="ic" aria-hidden="true"><div class="dial"></div></span><div><b>Gira</b>: gire o disco roxo, embaixo, arrastando em círculo.</div></div>
+    <div class="how-row"><span class="ic" aria-hidden="true"><div class="slide"><div class="knob"></div></div></span><div><b>Desliza</b> <i>(só no Difícil)</i>: arraste a bolinha da barra até o outro lado.</div></div>
+    <div class="how-row"><span class="ic" aria-hidden="true"><div class="sw"><i></i></div></span><div><b>Vira</b> <i>(só no Difícil)</i>: toque na chave, na lateral, para virá-la.</div></div>
+  </div>
+  <p class="last" id="last" hidden></p>
+  <button class="btn btn-main" id="go">Iniciar</button>
+  <button class="btn btn-ghost" id="open-set">⚙ Configurações</button>
+  <button class="btn btn-ghost" id="open-rew">🍬 Recompensas</button>
+</section>
+
+<section class="screen" id="s-diff" hidden>
+  <h2>Dificuldade</h2>
+  <div class="diffs d-grid gap-3">
+    <button class="dc f" data-d="facil"><strong>Fácil</strong>A área do comando brilha. Ritmo mais lento. 50 pontos por ação.</button>
+    <button class="dc n" data-d="normal"><strong>Normal</strong>O jogo clássico. 100 pontos por ação.</button>
+    <button class="dc h" data-d="dificil"><strong>Difícil</strong>Duas áreas novas (Desliza e Vira), velocidade que aumenta bem mais rápido e comandos com voz grave (áudio) ou apagados (escrita). 150 pontos por ação.</button>
+  </div>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
+
+<section class="screen" id="s-set" hidden>
+  <h2>Configurações</h2>
+  <p class="set-l">Como receber os comandos</p>
+  <div class="seg btn-group-lg d-flex gap-2">
+    <button class="btn opt" data-mode="audio" aria-pressed="true">🔊 Áudio</button>
+    <button class="btn opt" data-mode="text" aria-pressed="false">Aa Escrita</button>
+  </div>
+  <p class="set-l">Volume da música de fundo: <b id="vol-v">50%</b></p>
+  <input type="range" class="form-range vol" id="vol" min="0" max="100" step="5" value="50" aria-label="Volume da música de fundo">
+  <p class="set-n">No jogo por áudio a música abaixa sozinha para você ouvir os comandos.</p>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
+
+<section class="screen" id="s-rew" hidden>
+  <div class="rtab" id="rtab"></div>
+  <h2>Recompensas</h2>
+  <p class="set-l">Bata a meta em uma única partida e ganhe balas! Sua melhor pontuação: <b id="best">0</b></p>
+  <p class="win-t" id="rew-st"></p>
+  <button class="btn btn-main" id="redeem-btn">Resgatar Recompensa</button>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
+
+<section class="screen" id="s-win" hidden>
+  <h2>Parabéns! 🎉</h2>
+  <p class="win-t" id="win-t"></p>
+  <div class="alert alert-danger warn mb-0" role="alert">⚠ NÃO feche esta tela! Se fechar, não será possível comprovar que você bateu a meta de pontos para receber a bala.</div>
+  <div class="proof"><span id="win-pts"></span> · <span id="win-clock"></span></div>
+  <button class="btn btn-ghost" id="win-done">Já recebi minhas balas</button>
+</section>
+
+<section class="screen" id="s-game" hidden>
+  <div class="top">
+    <div class="score" id="sc">0</div><div class="score-l">pontos</div>
+    <div class="cmd" id="cmd" aria-live="assertive"></div>
+  </div>
+  <div class="stage">
+    <div class="toy" id="toy">
+      <div class="pull" id="pull"><div class="ring"></div><div class="stem"></div></div>
+      <div class="pull-hit" id="pullHit" role="button" aria-label="Puxar" tabindex="0"></div>
+      <div class="shell"></div>
+      <div class="sw hard-only" id="sw" role="button" aria-label="Virar a chave" tabindex="0"><i></i></div>
+      <button class="toy-btn" id="btn" aria-label="Apertar"></button>
+      <div class="slide hard-only" id="slide" role="button" aria-label="Deslizar" tabindex="0"><div class="knob" id="knob"></div></div>
+      <div class="dial" id="dial" role="button" aria-label="Girar" tabindex="0"></div>
+    </div>
+  </div>
+  <div class="bottom"></div>
+</section>
+
+<audio id="bgm" src="assets/sons/Treasure Hunt - Jeremy Korpas.mp3" loop preload="auto"></audio>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="assets/js/main.js"></script>
+</body>
+</html>
