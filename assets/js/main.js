@@ -13,7 +13,7 @@ var state='idle',score=0,step=0,current=null,timer=null,ctx=null,voice=null,d=DI
 try{mode=localStorage.getItem('apg-mode')==='text'?'text':'audio'}catch(e){}
 
 /* telas */
-function show(n){['home','diff','set','game','rew','win'].forEach(function(k){$('s-'+k).hidden=(k!==n)});if(n==='rew')renderRew();cur=n;musicPlay()}
+function show(n){['home','diff','set','game','rew','win','shop'].forEach(function(k){$('s-'+k).hidden=(k!==n)});if(n==='rew')renderRew();if(n==='shop')renderShop();cur=n;musicPlay()}
 function setMode(m){
   mode=m;
   try{localStorage.setItem('apg-mode',m)}catch(e){}
@@ -23,6 +23,7 @@ setMode(mode);
 $('go').onclick=function(){show('diff')};
 $('open-set').onclick=function(){show('set')};
 $('open-rew').onclick=function(){show('rew')};
+$('open-shop').onclick=function(){show('shop')};
 var best=0;try{best=+localStorage.getItem('apg-best')||0}catch(e){}
 function saveBest(){try{localStorage.setItem('apg-best',best)}catch(e){}}
 var TIERS=[{p:450,n:1,w:10,l:'10m'},{p:675,n:2,w:15,l:'15m'},{p:1010,n:4,w:25,l:'25m'},{p:1515,n:6,w:40,l:'40m'},{p:2270,n:9,w:60,l:'1h'},{p:3000,n:12,w:90,l:'1h e 30m'}],clockT=null,curWait=3600000;
@@ -77,7 +78,74 @@ function tone(f,dur,type,at,vol){
 }
 function sOk(){tone(660,.09,'square',0);tone(990,.12,'square',.08)}
 function sFail(){tone(220,.25,'sawtooth',0,.18);tone(140,.45,'sawtooth',.2,.18)}
-var toonVoice=null,toonMale=false;
+
+/* loja: pontos de cada partida viram moedas para personalizar */
+var coins=0,own={},sel={bg:'roxo',toy:'amarelo',font:'padrao',voice:'desenho'},shopTab='bg';
+try{coins=+localStorage.getItem('apg-coins')||0;own=JSON.parse(localStorage.getItem('apg-own')||'{}');Object.assign(sel,JSON.parse(localStorage.getItem('apg-sel')||'{}'))}catch(e){}
+function saveShop(){try{localStorage.setItem('apg-coins',coins);localStorage.setItem('apg-own',JSON.stringify(own));localStorage.setItem('apg-sel',JSON.stringify(sel))}catch(e){}}
+var SHOP={
+ bg:{n:'Fundo',items:[
+  {id:'roxo',n:'Roxo clássico',p:0,v:['#2a1850','#1b0f38','#3a2570']},
+  {id:'oceano',n:'Oceano',p:500,v:['#0d3b66','#06203a','#145a8a']},
+  {id:'floresta',n:'Floresta',p:500,v:['#1f5a3a','#0e2d1d','#2a7a4f']},
+  {id:'sol',n:'Pôr do sol',p:700,v:['#8a3a2e','#2b1033','#a04a52']},
+  {id:'galaxia',n:'Galáxia',p:900,v:['#1a1a2e','#05050a','#2c2c4a']}]},
+ toy:{n:'Brinquedo',items:[
+  {id:'amarelo',n:'Amarelo',p:0,v:['#ffe27a','#ffc72c','#d99a00','#8f6400']},
+  {id:'rosa',n:'Rosa',p:400,v:['#ffb3d9','#ff5fb0','#c2307f','#7a1a50']},
+  {id:'azul',n:'Azul',p:400,v:['#9fd8ff','#3d9bff','#1f64c2','#123e7a']},
+  {id:'verde',n:'Verde',p:400,v:['#b5f5a0','#52d44a','#2c9a2e','#17621c']},
+  {id:'laranja',n:'Laranja',p:400,v:['#ffd199','#ff8a1f','#cc5f00','#7a3a00']}]},
+ font:{n:'Fonte',items:[
+  {id:'padrao',n:'Padrão',p:0,v:"'Bowlby One','Arial Black',sans-serif"},
+  {id:'pacifico',n:'Pacifico',p:300,v:"'Pacifico',cursive"},
+  {id:'lobster',n:'Lobster',p:300,v:"'Lobster',cursive"},
+  {id:'bungee',n:'Bungee',p:400,fs:15,v:"'Bungee',sans-serif"},
+  {id:'marker',n:'Permanent Marker',p:400,v:"'Permanent Marker',cursive"},
+  {id:'pixel',n:'Press Start 2P',p:500,fs:11,v:"'Press Start 2P',monospace"},
+  {id:'creepster',n:'Creepster',p:600,v:"'Creepster',cursive"}]},
+ voice:{n:'Voz',items:[
+  {id:'desenho',n:'Desenho (padrão)',p:0,pitch:1.9},
+  {id:'feminina',n:'Feminina',p:500,pitch:1.1,rate:1,k:'fem'},
+  {id:'esquilo',n:'Esquilo',p:600,pitch:2,rate:1.25},
+  {id:'gigante',n:'Gigante',p:600,pitch:.6,rate:.9,k:'male'},
+  {id:'robo',n:'Robô',p:800,pitch:.8,rate:.85}]}
+};
+var SHOP_NOTE={font:'Na dificuldade Difícil, qualquer fonte adquirida será exibida com menor intensidade (mais apagada).',voice:'Na dificuldade Difícil, qualquer voz adquirida será reproduzida com ruído de fundo.'};
+function pick(c){var l=SHOP[c].items;return l.find(function(x){return x.id===sel[c]})||l[0]}
+function applyTheme(){
+  var r=document.documentElement.style,b=pick('bg').v,t=pick('toy').v;
+  r.setProperty('--bg',b[0]);r.setProperty('--bg2',b[1]);r.setProperty('--card',b[2]);
+  r.setProperty('--toy-l',t[0]);r.setProperty('--toy',t[1]);r.setProperty('--toy-d',t[2]);r.setProperty('--toy-s',t[3]);
+  r.setProperty('--cmd-font',pick('font').v);
+}
+applyTheme();
+function renderShop(){
+  $('coins').textContent=fmt(coins);
+  var h='';
+  Object.keys(SHOP).forEach(function(k){h+='<button class="btn opt" data-tab="'+k+'" aria-pressed="'+(k===shopTab)+'">'+SHOP[k].n+'</button>'});
+  $('shop-tabs').innerHTML=h;h='';
+  SHOP[shopTab].items.forEach(function(it){
+    var owned=it.p===0||own[shopTab+':'+it.id],on=sel[shopTab]===it.id,pv='';
+    if(shopTab==='bg')pv='<span class="sw-p" style="background:radial-gradient(circle,'+it.v[0]+','+it.v[1]+')"></span>';
+    else if(shopTab==='toy')pv='<span class="sw-p" style="background:radial-gradient(circle at 35% 30%,'+it.v[0]+','+it.v[1]+' 50%,'+it.v[2]+')"></span>';
+    else if(shopTab==='font')pv='<span class="f-p" style="font-family:'+it.v+(it.fs?';font-size:'+it.fs+'px':'')+'">Aperta!</span>';
+    else pv='<button class="btn btn-ghost listen" data-hear="'+it.id+'">🔊 Ouvir</button>';
+    h+='<div class="shop-it">'+pv+'<div class="shop-n">'+it.n+'</div>'+(on?'<span class="shop-on">Equipado</span>':'<button class="btn btn-main shop-b" data-buy="'+it.id+'"'+(!owned&&coins<it.p?' disabled':'')+'>'+(owned?'Equipar':'Comprar · '+fmt(it.p))+'</button>')+'</div>';
+  });
+  $('shop-list').innerHTML=h;
+  var nt=$('shop-note'),tx=SHOP_NOTE[shopTab]||'';nt.textContent=tx;nt.hidden=!tx;
+}
+$('s-shop').addEventListener('click',function(e){
+  var b=e.target.closest('[data-tab],[data-buy],[data-hear]');if(!b)return;
+  if(b.dataset.tab){shopTab=b.dataset.tab;renderShop();return}
+  if(b.dataset.hear){say('Aperta!',1,false,b.dataset.hear);return}
+  var it=SHOP[shopTab].items.find(function(x){return x.id===b.dataset.buy}),k=shopTab+':'+it.id;
+  if(it.p&&!own[k]){if(coins<it.p)return;coins-=it.p;own[k]=1}
+  sel[shopTab]=it.id;saveShop();applyTheme();renderShop();
+});
+
+var toonVoice=null,toonMale=false,femVoice=null,maleVoice=null;
 function pickVoice(){
   if(!window.speechSynthesis)return;
   var vs=speechSynthesis.getVoices();
@@ -86,6 +154,7 @@ function pickVoice(){
     voice=(br.length?br:pt).find(function(v){return /natural|neural|online|google|luciana|francisca|vit[oó]ria/i.test(v.name)})||br[0]||pt[0]||null;
   var male=(br.length?br:pt).find(function(v){return /daniel|felipe|ricardo|ant[oô]nio|donato|jorge|male|masculin/i.test(v.name)});
   toonMale=!!male;toonVoice=male||voice;
+  femVoice=(br.length?br:pt).find(function(v){return /luciana|francisca|vit[oó]ria|female|feminin/i.test(v.name)})||null;maleVoice=male||null;
 }
 if(window.speechSynthesis){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
 var hardMode=false;
@@ -117,7 +186,7 @@ function hardText(t){
   t.split('').forEach(function(ch){
     var sp=document.createElement('span');
     sp.textContent=ch===' '?'\u00a0':ch;
-    sp.style.cssText='display:inline-block;font-family:'+FONTS[Math.floor(Math.random()*FONTS.length)]+';opacity:'+(.22+Math.random()*.28).toFixed(2)+';transform:rotate('+Math.round(Math.random()*24-12)+'deg);font-size:'+(.8+Math.random()*.4).toFixed(2)+'em;filter:blur(.6px)';
+    sp.style.cssText='display:inline-block;font-family:'+(sel.font==='padrao'?FONTS[Math.floor(Math.random()*FONTS.length)]:pick('font').v)+';opacity:'+(.22+Math.random()*.28).toFixed(2)+';transform:rotate('+Math.round(Math.random()*24-12)+'deg);font-size:'+(.8+Math.random()*.4).toFixed(2)+'em;filter:blur(.6px)';
     cmdEl.appendChild(sp);
   });
   cmdEl.classList.add('rnd');
@@ -143,23 +212,25 @@ function boing(){
   g.gain.setValueAtTime(.2,t);g.gain.exponentialRampToValueAtTime(.001,t+.26);
   o.connect(g);g.connect(ctx.destination);o.start(t);v.start(t);o.stop(t+.28);v.stop(t+.28);
 }
-function say(text,rate,hard){
+function styleVoice(st){return st.k==='fem'?(femVoice||voice):st.k==='male'?(maleVoice||voice):st.id==='desenho'?toonVoice:voice}
+/* Em qualquer voz, na dificuldade Dificil o tom e' mais grosso (hard) */
+function say(text,rate,hard,sid){
   if(!window.speechSynthesis)return;
   try{
     speechSynthesis.cancel();
-    var cartoon=!hard&&TOON[text];
+    var st=sid?SHOP.voice.items.find(function(x){return x.id===sid}):pick('voice');
+    var cartoon=!hard&&st.id==='desenho'&&TOON[text];
     var u=new SpeechSynthesisUtterance(cartoon||text);
     u.lang='pt-BR';u.volume=1;
+    var vv=styleVoice(st);if(vv)u.voice=vv;
     if(hard){
-      if(voice)u.voice=voice;
-      u.pitch=.5+Math.random()*.12;
-      u.rate=Math.min(1.7,rate*(.95+Math.random()*.1));
+      u.pitch=Math.max(.35,Math.min(.62,st.pitch*.45+Math.random()*.06));
+      u.rate=Math.min(1.7,rate*(.95+Math.random()*.1)*(st.rate||1));
       u.onstart=function(){hissStart(u,.07)};
       u.onend=u.onerror=function(){hissStop(u)};
     }else{
-      if(toonVoice)u.voice=toonVoice;
-      u.pitch=toonMale?1.8+Math.random()*.2:1+Math.random()*.15;
-      u.rate=Math.min(2,rate*(1.08+Math.random()*.12));
+      u.pitch=st.id==='desenho'?(toonMale?1.8+Math.random()*.2:1+Math.random()*.15):st.pitch;
+      u.rate=Math.min(2,rate*(st.id==='desenho'?1.08+Math.random()*.12:st.rate));
       if(cartoon)boing();
     }
     speechSynthesis.speak(u);
@@ -262,7 +333,8 @@ function fail(){
   toy.classList.remove('shake');void toy.offsetWidth;toy.classList.add('shake');
   setTimeout(function(){
     if(score>best){best=score;saveBest()}
-    var l=$('last');l.hidden=false;l.textContent='Fim de jogo: '+score+' pontos';
+    coins+=score;saveShop();
+    var l=$('last');l.hidden=false;l.textContent='Fim de jogo: '+score+' pontos'+(score?' (+'+fmt(score)+' na Loja)':'');
     show('home');
   },900);
 }

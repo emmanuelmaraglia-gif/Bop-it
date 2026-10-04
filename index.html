@@ -24,7 +24,10 @@
   </div>
   <p class="last" id="last" hidden></p>
   <button class="btn btn-main" id="go">Iniciar</button>
-  <button class="btn btn-ghost" id="open-set">⚙ Configurações</button>
+  <div class="pair">
+    <button class="btn btn-ghost" id="open-shop">🛍 Loja</button>
+    <button class="btn btn-ghost" id="open-set">⚙ Configurações</button>
+  </div>
   <button class="btn btn-ghost" id="open-rew">🍬 Recompensas</button>
 </section>
 
@@ -35,6 +38,15 @@
     <button class="dc n" data-d="normal"><strong>Normal</strong>O jogo clássico. 100 pontos por ação.</button>
     <button class="dc h" data-d="dificil"><strong>Difícil</strong>Duas áreas novas (Desliza e Vira), velocidade que aumenta bem mais rápido e comandos com voz grave (áudio) ou apagados (escrita). 150 pontos por ação.</button>
   </div>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
+
+<section class="screen" id="s-shop" hidden>
+  <h2>Loja</h2>
+  <p class="set-l">Seus pontos: <b id="coins">0</b></p>
+  <div class="shop-tabs" id="shop-tabs"></div>
+  <div class="shop-list" id="shop-list"></div>
+  <p class="set-n" id="shop-note" hidden></p>
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
