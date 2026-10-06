@@ -1,19 +1,39 @@
 <!DOCTYPE html>
+<!-- Diz ao navegador que este arquivo usa a versão atual do HTML (HTML5). -->
 <html lang="pt-BR">
+<!-- lang="pt-BR": informa o idioma da página (ajuda leitores de tela e tradutores). -->
 <head>
+<!-- O head guarda informações sobre a página. Nada daqui aparece na tela, exceto o título da aba. -->
+
+<!-- Codificação de caracteres: permite acentos e emojis. -->
 <meta charset="utf-8">
+
+<!-- Faz a página se ajustar à largura do celular. viewport-fit=cover usa a tela toda, inclusive atrás do entalhe. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+<!-- Texto que aparece na aba do navegador. -->
 <title>Aperta, Puxa, Gira</title>
-<!-- Bootstrap 5 -->
+
+<!-- Bootstrap 5: biblioteca de estilos pronta (botões, tabela, alerta...). Carrega pela internet (CDN). -->
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<!-- Fontes -->
+
+<!-- Fontes do Google usadas no jogo: no título, nos textos e na Loja. -->
 <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Nunito:wght@600;800&family=Pacifico&family=Special+Elite&family=Rye&family=Creepster&family=Bungee&family=Press+Start+2P&family=Permanent+Marker&family=Lobster&family=Caveat:wght@700&family=Orbitron:wght@800&family=Fredericka+the+Great&family=Chewy&display=swap" rel="stylesheet">
-<!-- Estilos do jogo (depois do Bootstrap para poder personalizar) -->
+
+<!-- Estilos do jogo. Fica DEPOIS do Bootstrap de propósito: o que vem depois pode sobrescrever o que veio antes. -->
 <link href="assets/css/style.css" rel="stylesheet">
 </head>
 <body>
+
+<!-- Cada "section class=screen" é uma TELA do jogo. O JavaScript mostra uma por vez.
+     O atributo "hidden" esconde a tela; o JavaScript retira esse atributo da tela atual. -->
+
+<!-- ===== TELA INICIAL (menu) ===== -->
 <section class="screen" id="s-home">
   <h1>Aperta,<br>Puxa, Gira</h1>
+
+  <!-- Quadro "Como jogar". Cada linha (how-row) tem um ícone à esquerda e o texto à direita.
+       Os ícones reaproveitam as mesmas classes do brinquedo (toy-btn, pull, dial...), por isso ficam iguais. -->
   <div class="how">
     <p><b>Como jogar:</b> ouça (ou leia) o comando e faça a ação no brinquedo antes do tempo acabar. Cada acerto deixa o jogo mais rápido. Errou ou demorou? Fim de jogo.</p>
     <div class="how-row"><span class="ic" aria-hidden="true"><div class="toy-btn"></div></span><div><b>Aperta</b>: toque no botão vermelho, no centro do brinquedo.</div></div>
@@ -22,8 +42,15 @@
     <div class="how-row"><span class="ic" aria-hidden="true"><div class="slide"><div class="knob"></div></div></span><div><b>Desliza</b> <i>(só no Difícil)</i>: arraste a bolinha da barra até o outro lado.</div></div>
     <div class="how-row"><span class="ic" aria-hidden="true"><div class="sw"><i></i></div></span><div><b>Vira</b> <i>(só no Difícil)</i>: toque na chave, na lateral, para virá-la.</div></div>
   </div>
+  <!-- aria-hidden="true": os ícones são decorativos, então leitores de tela os ignoram. -->
+
+  <!-- Mostra "Fim de jogo: N pontos" depois de uma partida. Começa escondido. -->
   <p class="last" id="last" hidden></p>
+
+  <!-- "btn" é a classe base do Bootstrap; "btn-main" é a nossa personalização (definida no style.css). -->
   <button class="btn btn-main" id="go">Iniciar</button>
+
+  <!-- A div "pair" agrupa Loja e Configurações para terem a MESMA largura (ver .pair no CSS). -->
   <div class="pair">
     <button class="btn btn-ghost" id="open-shop">🛍 Loja</button>
     <button class="btn btn-ghost" id="open-set">⚙ Configurações</button>
@@ -31,39 +58,50 @@
   <button class="btn btn-ghost" id="open-rew">🍬 Recompensas</button>
 </section>
 
+<!-- ===== TELA DE DIFICULDADE ===== -->
 <section class="screen" id="s-diff" hidden>
   <h2>Dificuldade</h2>
+  <!-- d-grid e gap-3 são classes prontas do Bootstrap (layout em grade com espaçamento).
+       data-d="..." guarda o nome da dificuldade; o JavaScript lê esse valor ao clicar. -->
   <div class="diffs d-grid gap-3">
     <button class="dc f" data-d="facil"><strong>Fácil</strong>A área do comando brilha. Ritmo mais lento. 50 pontos por ação.</button>
     <button class="dc n" data-d="normal"><strong>Normal</strong>O jogo clássico. 100 pontos por ação.</button>
     <button class="dc h" data-d="dificil"><strong>Difícil</strong>Duas áreas novas (Desliza e Vira), velocidade que aumenta bem mais rápido e comandos com voz grave (áudio) ou apagados (escrita). 150 pontos por ação.</button>
   </div>
+  <!-- data-back: qualquer botão com esse atributo volta ao menu (o JavaScript cuida disso). -->
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
+<!-- ===== TELA DA LOJA ===== -->
 <section class="screen" id="s-shop" hidden>
   <h2>Loja</h2>
   <p class="set-l">Seus pontos: <b id="coins">0</b></p>
+  <!-- As abas, a lista de itens e o aviso começam vazios: o JavaScript preenche (função renderShop). -->
   <div class="shop-tabs" id="shop-tabs"></div>
   <div class="shop-list" id="shop-list"></div>
   <p class="set-n" id="shop-note" hidden></p>
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
+<!-- ===== TELA DE CONFIGURAÇÕES ===== -->
 <section class="screen" id="s-set" hidden>
   <h2>Configurações</h2>
   <p class="set-l">Como receber os comandos</p>
+  <!-- Dois botões de escolha. aria-pressed indica qual está selecionado; o CSS usa isso para destacar. -->
   <div class="seg btn-group-lg d-flex gap-2">
     <button class="btn opt" data-mode="audio" aria-pressed="true">🔊 Áudio</button>
     <button class="btn opt" data-mode="text" aria-pressed="false">Aa Escrita</button>
   </div>
   <p class="set-l">Volume da música de fundo: <b id="vol-v">50%</b></p>
+  <!-- Controle deslizante (slider) de 0 a 100, de 5 em 5. "form-range" é do Bootstrap. -->
   <input type="range" class="form-range vol" id="vol" min="0" max="100" step="5" value="50" aria-label="Volume da música de fundo">
   <p class="set-n">No jogo por áudio a música abaixa sozinha para você ouvir os comandos.</p>
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
+<!-- ===== TELA DE RECOMPENSAS ===== -->
 <section class="screen" id="s-rew" hidden>
+  <!-- A tabela de faixas é montada pelo JavaScript (função buildTab). -->
   <div class="rtab" id="rtab"></div>
   <h2>Recompensas</h2>
   <p class="set-l">Bata a meta em uma única partida e ganhe balas! Sua melhor pontuação: <b id="best">0</b></p>
@@ -72,35 +110,54 @@
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
+<!-- ===== TELA DE COMPROVAÇÃO DO RESGATE ===== -->
 <section class="screen" id="s-win" hidden>
   <h2>Parabéns! 🎉</h2>
   <p class="win-t" id="win-t"></p>
+  <!-- "alert alert-danger" é um aviso vermelho do Bootstrap; "warn" é o nosso estilo extra (pulsante). -->
   <div class="alert alert-danger warn mb-0" role="alert">⚠ NÃO feche esta tela! Se fechar, não será possível comprovar que você bateu a meta de pontos para receber a bala.</div>
+  <!-- Pontos e relógio em tempo real: servem de prova de que a tela é "ao vivo" (não é um print). -->
   <div class="proof"><span id="win-pts"></span> · <span id="win-clock"></span></div>
   <button class="btn btn-ghost" id="win-done">Já recebi minhas balas</button>
 </section>
 
+<!-- ===== TELA DO JOGO ===== -->
 <section class="screen" id="s-game" hidden>
+  <!-- Parte de cima: pontuação e o comando (texto) atual. -->
   <div class="top">
     <div class="score" id="sc">0</div><div class="score-l">pontos</div>
+    <!-- aria-live: leitores de tela anunciam o comando assim que ele muda. -->
     <div class="cmd" id="cmd" aria-live="assertive"></div>
   </div>
+
   <div class="stage">
+    <!-- O BRINQUEDO. A ordem das camadas importa: z-index no CSS define quem fica na frente. -->
     <div class="toy" id="toy">
+      <!-- Alça azul (só visual). -->
       <div class="pull" id="pull"><div class="ring"></div><div class="stem"></div></div>
+      <!-- Área invisível e maior que a alça: é nela que o dedo toca. Facilita puxar. -->
       <div class="pull-hit" id="pullHit" role="button" aria-label="Puxar" tabindex="0"></div>
+      <!-- Corpo amarelo do brinquedo. -->
       <div class="shell"></div>
+      <!-- Chave (Vira): só aparece no Difícil (classe hard-only). -->
       <div class="sw hard-only" id="sw" role="button" aria-label="Virar a chave" tabindex="0"><i></i></div>
+      <!-- Botão vermelho (Aperta). -->
       <button class="toy-btn" id="btn" aria-label="Apertar"></button>
+      <!-- Barra com bolinha (Desliza): só no Difícil. -->
       <div class="slide hard-only" id="slide" role="button" aria-label="Deslizar" tabindex="0"><div class="knob" id="knob"></div></div>
+      <!-- Disco roxo (Gira). -->
       <div class="dial" id="dial" role="button" aria-label="Girar" tabindex="0"></div>
     </div>
   </div>
   <div class="bottom"></div>
+  <!-- role, aria-label e tabindex tornam as peças acessíveis por teclado e leitor de tela. -->
 </section>
 
+<!-- Música de fundo. "loop" repete sem parar. Fica invisível; o JavaScript controla tocar e volume.
+     %20 no nome do arquivo representa os espaços. -->
 <audio id="bgm" src="assets/sons/Treasure Hunt - Jeremy Korpas.mp3" loop preload="auto"></audio>
 
+<!-- Scripts no FINAL do body: assim todos os elementos acima já existem quando o JavaScript roda. -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="assets/js/main.js"></script>
 </body>
