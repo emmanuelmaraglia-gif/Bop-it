@@ -208,3 +208,9 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--ink);outli
 .listen{--bs-btn-font-size:13px;--bs-btn-padding-y:6px;--bs-btn-padding-x:10px;--bs-btn-border-width:2px}
 .shop-b{--bs-btn-font-size:14px;--bs-btn-padding-y:8px;--bs-btn-padding-x:14px;box-shadow:0 4px 0 var(--teal-d)}
 .shop-on{font-weight:900;color:var(--teal)}
+
+/* telas que podem passar da altura do celular: centraliza sem cortar o topo (margens auto) e usa a altura real visivel */
+#s-home,#s-diff,#s-set,#s-win{justify-content:flex-start}
+#s-home>:first-child,#s-diff>:first-child,#s-set>:first-child,#s-win>:first-child{margin-top:auto}
+#s-home>:last-child,#s-diff>:last-child,#s-set>:last-child,#s-win>:last-child{margin-bottom:auto}
+@supports (height:100dvh){.screen{height:100dvh}}
