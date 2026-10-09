@@ -26,7 +26,9 @@
 <body>
 
 <!-- Cada "section class=screen" é uma TELA do jogo. O JavaScript mostra uma por vez.
-     O atributo "hidden" esconde a tela; o JavaScript retira esse atributo da tela atual. -->
+     O atributo "hidden" esconde a tela; o JavaScript retira esse atributo da tela atual.
+     IMPORTANTE: as telas ficam uma ao lado da outra. Uma tela NUNCA pode ficar dentro de outra,
+     senão ela continua escondida junto com a tela de fora. -->
 
 <!-- ===== TELA INICIAL (menu) ===== -->
 <section class="screen" id="s-home">
@@ -50,7 +52,7 @@
   <!-- "btn" é a classe base do Bootstrap; "btn-main" é a nossa personalização (definida no style.css). -->
   <button class="btn btn-main" id="go">Iniciar</button>
 
-  <!-- A div "pair" agrupa Loja e Configurações para terem a MESMA largura (ver .pair no CSS). -->
+  <!-- A div "pair" agrupa Loja, Hall da Fama e Configurações para terem a MESMA largura (ver .pair no CSS). -->
   <div class="pair">
     <button class="btn btn-ghost" id="open-shop">🛍 Loja</button>
     <button class="btn btn-ghost" id="open-hall">🏆 Hall da Fama</button>
@@ -61,25 +63,6 @@
 
 <!-- ===== TELA DE DIFICULDADE ===== -->
 <section class="screen" id="s-diff" hidden>
-  <!-- ===== TELA DE LOGIN (primeiro acesso) ===== -->
-<section class="screen" id="s-login" hidden>
-  <h2>Bem-vindo(a)!</h2>
-  <p class="win-t">Escolha o seu nome de usuário. Ele será exibido no Hall da Fama.</p>
-  <!-- maxlength="20": o próprio campo não aceita mais de 20 caracteres. -->
-  <input type="text" class="name-in" id="name-in" maxlength="20" autocomplete="off" autocapitalize="words" placeholder="Nome de usuário" aria-label="Nome de usuário">
-  <p class="set-n"><span id="name-count">0</span>/20 caracteres</p>
-  <p class="name-msg" id="name-msg" hidden></p>
-  <button class="btn btn-main" id="name-ok">Continuar</button>
-</section>
-
-<!-- ===== TELA DO HALL DA FAMA ===== -->
-<section class="screen" id="s-hall" hidden>
-  <h2>Hall da Fama</h2>
-  <p class="set-n" id="hall-info"></p>
-  <div class="hall" id="hall"></div>
-  <button class="btn btn-ghost" id="hall-test" hidden>Atualizar agora (apenas teste)</button>
-  <button class="btn btn-ghost" data-back>Voltar</button>
-</section>
   <h2>Dificuldade</h2>
   <!-- d-grid e gap-3 são classes prontas do Bootstrap (layout em grade com espaçamento).
        data-d="..." guarda o nome da dificuldade; o JavaScript lê esse valor ao clicar. -->
@@ -100,6 +83,26 @@
   <div class="shop-tabs" id="shop-tabs"></div>
   <div class="shop-list" id="shop-list"></div>
   <p class="set-n" id="shop-note" hidden></p>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
+
+<!-- ===== TELA DE LOGIN (primeiro acesso) ===== -->
+<section class="screen" id="s-login" hidden>
+  <h2>Bem-vindo(a)!</h2>
+  <p class="win-t">Escolha o seu nome de usuário. Ele será exibido no Hall da Fama.</p>
+  <!-- maxlength="20": o próprio campo não aceita mais de 20 caracteres. -->
+  <input type="text" class="name-in" id="name-in" maxlength="20" autocomplete="off" autocapitalize="words" placeholder="Nome de usuário" aria-label="Nome de usuário">
+  <p class="set-n"><span id="name-count">0</span>/20 caracteres</p>
+  <p class="name-msg" id="name-msg" hidden></p>
+  <button class="btn btn-main" id="name-ok">Continuar</button>
+</section>
+
+<!-- ===== TELA DO HALL DA FAMA ===== -->
+<section class="screen" id="s-hall" hidden>
+  <h2>Hall da Fama</h2>
+  <p class="set-n" id="hall-info"></p>
+  <div class="hall" id="hall"></div>
+  <button class="btn btn-ghost" id="hall-test" hidden>Atualizar agora (apenas teste)</button>
   <button class="btn btn-ghost" data-back>Voltar</button>
 </section>
 
@@ -175,7 +178,7 @@
 
 <!-- Música de fundo. "loop" repete sem parar. Fica invisível; o JavaScript controla tocar e volume.
      %20 no nome do arquivo representa os espaços. -->
-<audio id="bgm" src="assets/sons/Treasure Hunt - Jeremy Korpas.mp3" loop preload="auto"></audio>
+<audio id="bgm" src="assets/sons/Treasure%20Hunt%20-%20Jeremy%20Korpas.mp3" loop preload="auto"></audio>
 
 <!-- Scripts no FINAL do body: assim todos os elementos acima já existem quando o JavaScript roda. -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

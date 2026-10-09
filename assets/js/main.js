@@ -1,3 +1,4 @@
+window.addEventListener('error',function(e){var d=document.createElement('div');d.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;background:#b00020;color:#fff;padding:10px;font:14px sans-serif';d.textContent='Erro: '+e.message+' (linha '+e.lineno+')';document.body.appendChild(d)});
 /* =========================================================
    ESTRUTURA GERAL
    Todo o código fica dentro de (function(){ ... })();
