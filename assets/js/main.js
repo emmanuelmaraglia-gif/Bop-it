@@ -55,9 +55,9 @@ try{mode=localStorage.getItem('apg-mode')==='text'?'text':'audio'}catch(e){}
    ========================================================= */
 
 /* show('nome') mostra a tela escolhida e esconde as outras.
-   Também atualiza telas que dependem de dados (recompensas e loja), guarda a tela atual em "cur"
+   Também atualiza telas que dependem de dados (recompensas, loja e Hall da Fama), guarda a tela atual em "cur"
    (declarada mais abaixo; var permite usar antes por "hoisting") e garante que a música esteja tocando. */
-function show(n){['home','diff','set','game','rew','win','shop'].forEach(function(k){$('s-'+k).hidden=(k!==n)});if(n==='rew')renderRew();if(n==='shop')renderShop();cur=n;musicPlay()}
+function show(n){['home','diff','set','game','rew','win','shop','login','hall'].forEach(function(k){$('s-'+k).hidden=(k!==n)});if(n==='rew')renderRew();if(n==='shop')renderShop();if(n==='hall')renderHall(false);cur=n;musicPlay()}
 
 /* Salva e destaca o modo de comando escolhido (áudio ou escrita). */
 function setMode(m){
@@ -254,6 +254,142 @@ $('s-shop').addEventListener('click',function(e){
 });
 
 /* =========================================================
+   LOGIN E HALL DA FAMA
+   O ranking fica no Firebase (Firestore), compartilhado entre todos os jogadores.
+   Se a configuração FB abaixo ficar vazia, o jogo guarda tudo só no aparelho (modo de teste).
+   ========================================================= */
+var FB={key:'AIzaSyB5o9CSFFYPKM_485Gv5_u0FS98l8rPdNY',project:'bop-it-35ed7'};   /* chave (apiKey) e id do projeto do Firebase */
+var RANK_TEST=false;                   /* true só no modo de teste local: mostra o botão "Atualizar agora" */
+var FB_ON=!!(FB.key&&FB.project);
+var DAY=86400000,user=null,curDiff='normal';   /* DAY = 24 horas em milissegundos; user = nome do jogador */
+try{user=localStorage.getItem('apg-user')}catch(e){}
+function lsGet(k,df){try{return JSON.parse(localStorage.getItem(k))||df}catch(e){return df}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
+function nkey(n){return n.toLowerCase()}   /* nomes iguais, mesmo com maiúsculas diferentes, contam como repetidos */
+var DIFFS=[['facil','Fácil'],['normal','Normal'],['dificil','Difícil']];
+
+/* --- Armazenamento 1: Firestore (REST). Cada jogador é um documento players/<id>. --- */
+var FB_URL='https://firestore.googleapis.com/v1/projects/'+FB.project+'/databases/(default)/documents';
+/* fbCall faz uma chamada ao Firestore e devolve {s: status HTTP, j: resposta em JSON}. */
+function fbCall(path,o){
+  o=o||{};
+  var url=FB_URL+path+(path.indexOf('?')<0?'?':'&')+'key='+FB.key+(o.q||'');
+  return fetch(url,{method:o.m||'GET',headers:o.b?{'Content-Type':'application/json'}:{},body:o.b?JSON.stringify(o.b):undefined}).then(function(r){
+    return r.json().catch(function(){return {}}).then(function(j){return {s:r.status,j:j}});
+  });
+}
+/* O identificador do documento é o nome em minúsculas convertido em hexadecimal: sempre válido e único. */
+function pid(k){return 'u_'+Array.prototype.map.call(new TextEncoder().encode(k),function(b){return ('0'+b.toString(16)).slice(-2)}).join('')}
+function fInt(f,n){return f&&f[n]&&f[n].integerValue?+f[n].integerValue:0}   /* lê um número inteiro de um documento do Firestore */
+var RANK_FB={
+  has:function(k){return fbCall('/players/'+pid(k)).then(function(r){if(r.s===200)return true;if(r.s===404)return false;throw new Error(r.s)})},
+  /* criar com documentId falha com o código 409 se o nome já existir: é isso que impede nomes repetidos */
+  create:function(k,name){
+    return fbCall('/players',{m:'POST',q:'&documentId='+pid(k),b:{fields:{name:{stringValue:name},facil:{integerValue:'0'},normal:{integerValue:'0'},dificil:{integerValue:'0'}}}}).then(function(r){if(r.s===200)return true;if(r.s===409)return false;throw new Error(r.s)});
+  },
+  score:function(k,df,pts){
+    var f={};f[df]={integerValue:String(pts)};
+    return fbCall('/players/'+pid(k),{m:'PATCH',q:'&updateMask.fieldPaths='+df+'&currentDocument.exists=true',b:{fields:f}}).then(function(r){if(r.s!==200)throw new Error(r.s)});
+  },
+  top:function(df){   /* os 10 maiores de uma dificuldade (só 10 leituras) */
+    return fbCall(':runQuery',{m:'POST',b:{structuredQuery:{from:[{collectionId:'players'}],orderBy:[{field:{fieldPath:df},direction:'DESCENDING'}],limit:10}}}).then(function(r){
+      if(r.s!==200)throw new Error(r.s);
+      return (r.j||[]).filter(function(x){return x.document}).map(function(x){return {n:x.document.fields.name.stringValue,s:fInt(x.document.fields,df)}}).filter(function(x){return x.s>0});
+    });
+  },
+  getSnap:function(){   /* lê a "fotografia" do ranking (meta/snapshot) */
+    return fbCall('/meta/snapshot').then(function(r){
+      if(r.s===404)return null;if(r.s!==200)throw new Error(r.s);
+      var f=r.j.fields||{},sn=JSON.parse(f.data.stringValue);sn.t=Date.parse(f.t.timestampValue);return sn;
+    });
+  },
+  /* grava a fotografia com a hora do SERVIDOR; as regras recusam se tiver menos de 24h (outro aparelho já atualizou) */
+  setSnap:function(sn){
+    var d={facil:sn.facil,normal:sn.normal,dificil:sn.dificil};
+    return fbCall(':commit',{m:'POST',b:{writes:[{update:{name:'projects/'+FB.project+'/databases/(default)/documents/meta/snapshot',fields:{data:{stringValue:JSON.stringify(d)}}},updateTransforms:[{fieldPath:'t',setToServerValue:'REQUEST_TIME'}]}]}}).then(function(){},function(){});
+  }
+};
+
+/* --- Armazenamento 2: só neste aparelho (modo de teste, sem Firebase). --- */
+var RANK_LOCAL={
+  has:function(k){return Promise.resolve(!!lsGet('apg-players',{})[k])},
+  create:function(k,name){var p=lsGet('apg-players',{});if(p[k])return Promise.resolve(false);p[k]={name:name,facil:0,normal:0,dificil:0};lsSet('apg-players',p);return Promise.resolve(true)},
+  score:function(k,df,pts){var p=lsGet('apg-players',{});if(p[k]&&pts>p[k][df]){p[k][df]=pts;lsSet('apg-players',p)}return Promise.resolve()},
+  top:function(df){var p=lsGet('apg-players',{});return Promise.resolve(Object.keys(p).map(function(k){return {n:p[k].name,s:p[k][df]}}).filter(function(x){return x.s>0}).sort(function(a,b){return b.s-a.s}).slice(0,10))},
+  getSnap:function(){return Promise.resolve(lsGet('apg-snap',null))},
+  setSnap:function(sn){lsSet('apg-snap',sn);return Promise.resolve()}
+};
+/* RANK é o armazenamento em uso: Firestore se a configuração FB estiver preenchida, senão o local. */
+var RANK=FB_ON?RANK_FB:RANK_LOCAL;
+
+/* --- Login --- */
+var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;   /* nameStep: 0 = 1º toque, 1 = aguardando confirmação */
+function nameSay(t,w){nameMsg.textContent=t;nameMsg.hidden=!t;nameMsg.className='name-msg'+(w?' warn2':'')}
+function nameReset(){nameStep=0;nameBtn.textContent='Continuar';nameSay('')}
+function netErr(){nameSay('Não foi possível conectar ao servidor. Verifique a internet e tente novamente.')}
+nameIn.addEventListener('input',function(){$('name-count').textContent=nameIn.value.length;if(nameStep)nameReset()});   /* editar o nome recomeça a confirmação */
+nameBtn.onclick=function(){
+  var n=nameIn.value.replace(/\s+/g,' ').trim(),k=nkey(n);
+  if(n.length<2){nameSay('Informe um nome com pelo menos 2 caracteres.');return}
+  if(!/^[\p{L}\p{N} ._-]+$/u.test(n)){nameSay('Utilize apenas letras, números, espaços, ponto, hífen e sublinhado.');return}
+  if(nameStep===0){   /* 1º toque: valida e avisa que o nome não poderá ser trocado */
+    RANK.has(k).then(function(t){
+      if(t){nameSay('Este nome de usuário já está em uso. Escolha outro.');return}
+      nameStep=1;nameBtn.textContent='Confirmar nome';
+      nameSay('Atenção: após a confirmação, o nome de usuário não poderá ser alterado. Toque novamente para confirmar.',true);
+    }).catch(netErr);
+  }else{              /* 2º toque: cria o jogador (a criação confere o nome de novo) */
+    RANK.create(k,n).then(function(ok){
+      if(!ok){nameReset();nameSay('Este nome de usuário já está em uso. Escolha outro.');return}
+      user=n;try{localStorage.setItem('apg-user',n)}catch(e){}
+      show('home');
+    }).catch(netErr);
+  }
+};
+
+/* --- Hall da Fama --- */
+function dt(t){return new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
+/* Desenha as 3 seções (Fácil, Normal e Difícil). O 1º recebe a classe gold, o 2º silver, o 3º bronze e os demais white. */
+function drawHall(sn){
+  $('hall-info').textContent='Ranking atualizado a cada 24 horas. Última atualização: '+dt(sn.t)+'. Próxima: '+dt(sn.t+DAY)+'.';
+  var box=$('hall');box.textContent='';
+  DIFFS.forEach(function(d){
+    var sec=document.createElement('div');sec.className='hall-sec';
+    var h=document.createElement('h3');h.textContent='Top 10 · '+d[1];sec.appendChild(h);
+    var list=sn[d[0]]||[];
+    if(!list.length){var e=document.createElement('p');e.className='hall-empty';e.textContent='Nenhum jogador pontuou nesta dificuldade até o momento.';sec.appendChild(e)}
+    list.forEach(function(x,i){
+      var row=document.createElement('div'),ps=document.createElement('span'),nm=document.createElement('span'),pt=document.createElement('span');
+      row.className='hall-row';ps.className='hall-pos';ps.textContent=(i+1)+'º';
+      nm.className='hall-name '+(['gold','silver','bronze'][i]||'white');nm.textContent=x.n+(user&&x.n===user?' (você)':'');   /* textContent: o nome nunca vira HTML */
+      pt.className='hall-pts';pt.textContent=fmt(x.s);
+      row.appendChild(ps);row.appendChild(nm);row.appendChild(pt);sec.appendChild(row);
+    });
+    box.appendChild(sec);
+  });
+}
+/* Mostra a fotografia guardada. Se ela tiver 24h ou mais, monta uma nova com os 10 melhores de cada dificuldade. */
+function renderHall(force){
+  $('hall-info').textContent='Carregando...';
+  RANK.getSnap().then(function(sn){
+    if(sn&&!force&&Date.now()-sn.t<DAY)return sn;   /* ainda vale a fotografia atual */
+    return Promise.all(DIFFS.map(function(d){return RANK.top(d[0])})).then(function(l){   /* passou 24h: nova fotografia */
+      var nw={t:Date.now(),facil:l[0],normal:l[1],dificil:l[2]};
+      return RANK.setSnap(nw).then(function(){return RANK.getSnap()}).then(function(s2){return s2||nw});
+    });
+  }).then(drawHall).catch(function(){$('hall-info').textContent='Não foi possível carregar o ranking. Verifique a conexão com a internet.'});
+}
+$('open-hall').onclick=function(){show('hall')};
+$('hall-test').hidden=!(RANK_TEST&&!FB_ON);$('hall-test').onclick=function(){renderHall(true)};
+
+/* Registro da pontuação no fim da partida (só envia se for maior que a melhor já enviada nesta dificuldade). */
+function rankSend(df,pts){
+  var mine=lsGet('apg-mine',{facil:0,normal:0,dificil:0});
+  if(!user||pts<=(mine[df]||0))return;
+  RANK.score(nkey(user),df,pts).then(function(){mine[df]=pts;lsSet('apg-mine',mine)}).catch(function(){});
+}
+
+/* =========================================================
    VOZES DO APARELHO (síntese de fala)
    Cada celular tem vozes diferentes, por isso o som pode variar de um aparelho para outro.
    ========================================================= */
@@ -447,9 +583,10 @@ volEl.addEventListener('input',function(){
    ========================================================= */
 
 /* Prepara e abre uma partida. Depois mostra "Clique no botão vermelho" e espera o jogador começar.
+   curDiff guarda a dificuldade para registrar a pontuação no ranking.
    (pStart é declarada mais abaixo; var permite usá-la aqui.) */
 function start(diff){
-  d=DIFF[diff];
+  d=DIFF[diff];curDiff=diff;
   pStart=null;pull.style.transition='';pull.style.transform='';   /* garante a alça no lugar */
   if(!ctx){try{ctx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
   if(ctx&&ctx.state==='suspended')ctx.resume();
@@ -499,7 +636,7 @@ function act(a){
 }
 
 /* Fim de jogo: toca o som de erro, treme o brinquedo, guarda a melhor pontuação,
-   soma os pontos ao saldo da Loja e volta ao menu. */
+   soma os pontos ao saldo da Loja, envia a pontuação ao ranking e volta ao menu. */
 function fail(){
   if(state==='idle')return;
   clearTimeout(timer);clearGlow();state='idle';
@@ -509,6 +646,7 @@ function fail(){
   setTimeout(function(){
     if(score>best){best=score;saveBest()}
     coins+=score;saveShop();
+    rankSend(curDiff,score);
     var l=$('last');l.hidden=false;l.textContent='Fim de jogo: '+score+' pontos'+(score?' (+'+fmt(score)+' na Loja)':'');
     show('home');
   },900);
@@ -579,5 +717,8 @@ sl.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.pre
 function flip(){sw.classList.toggle('on');act('vira')}
 sw.addEventListener('pointerdown',function(e){e.preventDefault();flip()});
 sw.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();flip()}});
+
+/* PRIMEIRO ACESSO: se o jogador ainda não tem nome de usuário, mostra a tela de login antes do menu. */
+if(!user)show('login');
 
 })();   /* fim da função que envolve todo o código */

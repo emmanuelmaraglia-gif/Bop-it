@@ -53,6 +53,7 @@
   <!-- A div "pair" agrupa Loja e Configurações para terem a MESMA largura (ver .pair no CSS). -->
   <div class="pair">
     <button class="btn btn-ghost" id="open-shop">🛍 Loja</button>
+    <button class="btn btn-ghost" id="open-hall">🏆 Hall da Fama</button>
     <button class="btn btn-ghost" id="open-set">⚙ Configurações</button>
   </div>
   <button class="btn btn-ghost" id="open-rew">🍬 Recompensas</button>
@@ -60,6 +61,25 @@
 
 <!-- ===== TELA DE DIFICULDADE ===== -->
 <section class="screen" id="s-diff" hidden>
+  <!-- ===== TELA DE LOGIN (primeiro acesso) ===== -->
+<section class="screen" id="s-login" hidden>
+  <h2>Bem-vindo(a)!</h2>
+  <p class="win-t">Escolha o seu nome de usuário. Ele será exibido no Hall da Fama.</p>
+  <!-- maxlength="20": o próprio campo não aceita mais de 20 caracteres. -->
+  <input type="text" class="name-in" id="name-in" maxlength="20" autocomplete="off" autocapitalize="words" placeholder="Nome de usuário" aria-label="Nome de usuário">
+  <p class="set-n"><span id="name-count">0</span>/20 caracteres</p>
+  <p class="name-msg" id="name-msg" hidden></p>
+  <button class="btn btn-main" id="name-ok">Continuar</button>
+</section>
+
+<!-- ===== TELA DO HALL DA FAMA ===== -->
+<section class="screen" id="s-hall" hidden>
+  <h2>Hall da Fama</h2>
+  <p class="set-n" id="hall-info"></p>
+  <div class="hall" id="hall"></div>
+  <button class="btn btn-ghost" id="hall-test" hidden>Atualizar agora (apenas teste)</button>
+  <button class="btn btn-ghost" data-back>Voltar</button>
+</section>
   <h2>Dificuldade</h2>
   <!-- d-grid e gap-3 são classes prontas do Bootstrap (layout em grade com espaçamento).
        data-d="..." guarda o nome da dificuldade; o JavaScript lê esse valor ao clicar. -->

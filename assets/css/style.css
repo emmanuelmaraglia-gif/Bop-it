@@ -214,3 +214,22 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--ink);outli
 #s-home>:first-child,#s-diff>:first-child,#s-set>:first-child,#s-win>:first-child{margin-top:auto}
 #s-home>:last-child,#s-diff>:last-child,#s-set>:last-child,#s-win>:last-child{margin-bottom:auto}
 @supports (height:100dvh){.screen{height:100dvh}}
+
+/* =========================================================
+   LOGIN E HALL DA FAMA
+   ========================================================= */
+#s-login,#s-hall{justify-content:flex-start}
+/* margens automáticas: centralizam a tela de login sem cortar o topo quando o teclado ocupa espaço */
+#s-login>:first-child{margin-top:auto}#s-login>:last-child{margin-bottom:auto}
+/* user-select:text libera a digitação no campo (o body bloqueia a seleção de texto em geral) */
+.name-in{width:min(320px,80vw);padding:12px 16px;border-radius:14px;border:3px solid var(--body);background:var(--card);color:var(--ink);font:800 18px 'Nunito',sans-serif;text-align:center;user-select:text;-webkit-user-select:text}
+.name-in:focus{outline:3px solid var(--ink);outline-offset:3px}
+.name-msg{max-width:320px;margin:0;font-weight:800;font-size:15px;color:#ffb3bd}.name-msg.warn2{color:var(--body)}
+.hall{width:min(420px,100%);display:flex;flex-direction:column;gap:14px}
+.hall-sec{background:var(--card);border-radius:16px;padding:12px 14px;text-align:left}
+.hall-sec h3{font:400 18px 'Bowlby One','Arial Black',sans-serif;color:var(--body);margin:0 0 8px}
+.hall-row{display:flex;gap:10px;align-items:baseline;padding:4px 0;font-weight:800;font-size:16px}
+.hall-pos{width:30px;opacity:.8}.hall-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hall-pts{font-variant-numeric:tabular-nums}
+/* cores do pódio */
+.gold{color:#ffd700}.silver{color:#c0c0c0}.bronze{color:#cd7f32}.white{color:#fff}
+.hall-empty{margin:0;opacity:.85;font-size:14px}
