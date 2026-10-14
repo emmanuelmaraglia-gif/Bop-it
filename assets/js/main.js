@@ -1,1488 +1,2182 @@
-window.addEventListener('error',function(e){var d=document.createElement('div');d.style.cssText='position:fixed;left:0;right:0;top:0;z-index:9999;background:#b00020;color:#fff;padding:10px;font:14px sans-serif';d.textContent='Erro: '+e.message+' (linha '+e.lineno+')';document.body.appendChild(d)});
-
-/* =========================================================
-
-   ESTRUTURA GERAL
-
-   Todo o código fica dentro de (function(){ ... })();
-
-   É uma função que se executa sozinha (IIFE). Ela isola as variáveis,
-
-   para não "vazarem" para o resto da página.
-
-   ========================================================= */
-
-(function(){
-
-
-
-/* Atalho: $('id') devolve o elemento HTML que tem aquele id. Evita repetir document.getElementById. */
-
-var $=function(id){return document.getElementById(id)};
-
-
-
-/* =========================================================
-
-   CONFIGURAÇÃO DO JOGO
-
-   ========================================================= */
-
-
-
-/* Texto de cada comando (também usado na fala). */
-
-var CMD={aperta:'Aperta!',puxa:'Puxa!',gira:'Gira!',desliza:'Desliza!',vira:'Vira!'};
-
-
-
-/* Comandos de Fácil e Normal. */
-
-var BASE=['aperta','puxa','gira'];
-
-
-
-/* Parâmetros de cada dificuldade:
-
-   pts  = pontos por acerto
-
-   w    = tempo inicial para agir (ms); wd = fator que reduz esse tempo a cada acerto; wm = tempo mínimo
-
-   g    = pausa inicial entre comandos (ms); gd = fator de redução; gm = pausa mínima
-
-   rm   = velocidade máxima da voz; rs = aumento da velocidade da voz por acerto
-
-   glow = true faz a peça certa brilhar
-
-   keys = comandos possíveis (o Difícil acrescenta Desliza e Vira) */
-
-var DIFF={
-
-  facil:{pts:50,w:3200,wd:.97,wm:1100,g:900,gd:.96,gm:350,rm:1.4,rs:.015,glow:true,keys:BASE},
-
-  normal:{pts:100,w:2600,wd:.94,wm:850,g:750,gd:.93,gm:160,rm:1.9,rs:.035,glow:false,keys:BASE},
-
-  dificil:{pts:150,w:2400,wd:.91,wm:720,g:650,gd:.9,gm:120,rm:2.2,rs:.055,glow:false,keys:BASE.concat(['desliza','vira'])}
-
+// ################################################################
+// PARTE 1 — CONFIGURAÇÃO DO FIREBASE (a única parte que você precisa editar)
+// ################################################################
+// ============================================================
+// CONFIGURAÇÃO DO FIREBASE (HALL DA FAMA)
+// Cole aqui a configuração do SEU projeto:
+// Console do Firebase → Configurações do projeto (engrenagem) → "Seus apps" → app Web (</>) → "Configuração do SDK"
+// Enquanto estiver "COLE_AQUI", o jogo roda em MODO DE TESTE (dados só neste aparelho, com jogadores de exemplo).
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBuxxFYEWfOZK6TVY2j0OPLFQnU2V-LPdU",
+  authDomain: "cyber-tech-game.firebaseapp.com",
+  projectId: "cyber-tech-game"
 };
 
-
-
-/* Referências aos elementos do brinquedo (guardamos em variáveis para não buscar toda hora). */
-
-var toy=$('toy'),cmdEl=$('cmd'),scEl=$('sc'),btn=$('btn'),pull=$('pull'),hit=$('pullHit'),dial=$('dial'),sl=$('slide'),kn=$('knob'),sw=$('sw');
-
-
-
-/* Liga o nome de cada comando à peça correspondente (usado para fazer a peça brilhar). */
-
-var TARGET={aperta:btn,puxa:pull,gira:dial,desliza:sl,vira:sw};
-
-
-
-/* ESTADO DO JOGO:
-
-   state   = fase atual: 'idle' (parado), 'ready' (aguardando o 1º clique), 'listening' (esperando a ação), 'gap' (pausa entre comandos)
-
-   score   = pontos da partida; step = quantos acertos seguidos (acelera o jogo)
-
-   current = comando atual; timer = temporizador ativo
-
-   ctx     = contexto de áudio (sons de efeito); voice = voz base do celular
-
-   d       = dificuldade atual; mode = 'audio' (voz) ou 'text' (escrito) */
-
-var state='idle',score=0,step=0,current=null,timer=null,ctx=null,voice=null,d=DIFF.normal,mode='audio';
-
-
-
-/* localStorage guarda dados no navegador (permanecem ao fechar a página).
-
-   try/catch evita erro se o navegador bloquear o armazenamento. */
-
-try{mode=localStorage.getItem('apg-mode')==='text'?'text':'audio'}catch(e){}
-
-
-
-/* =========================================================
-
-   TELAS
-
-   ========================================================= */
-
-
-
-/* show('nome') mostra a tela escolhida e esconde as outras.
-
-   Também atualiza telas que dependem de dados (recompensas, loja e Hall da Fama), guarda a tela atual em "cur"
-
-   (declarada mais abaixo; var permite usar antes por "hoisting") e garante que a música esteja tocando. */
-
-function show(n){['home','diff','set','game','rew','win','shop','login','hall'].forEach(function(k){$('s-'+k).hidden=(k!==n)});if(n==='rew')renderRew();if(n==='shop')renderShop();if(n==='hall')renderHall(false);cur=n;musicPlay()}
-
-
-
-/* Salva e destaca o modo de comando escolhido (áudio ou escrita). */
-
-function setMode(m){
-
-  mode=m;
-
-  try{localStorage.setItem('apg-mode',m)}catch(e){}
-
-  document.querySelectorAll('[data-mode]').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.mode===m)});
-
-}
-
-setMode(mode);
-
-
-
-/* Botões do menu inicial. */
-
-$('go').onclick=function(){show('diff')};
-
-$('open-set').onclick=function(){show('set')};
-
-$('open-rew').onclick=function(){show('rew')};
-
-$('open-shop').onclick=function(){show('shop')};
-
-
-
-/* =========================================================
-
-   RECOMPENSAS (BALAS)
-
-   ========================================================= */
-
-
-
-/* Melhor pontuação em UMA partida (é ela que vale para as balas). */
-
-var best=0;try{best=+localStorage.getItem('apg-best')||0}catch(e){}
-
-function saveBest(){try{localStorage.setItem('apg-best',best)}catch(e){}}
-
-
-
-/* Faixas de recompensa. Para mudar metas, balas ou esperas, edite esta lista:
-
-   p = pontos necessários; n = balas; w = espera em minutos; l = texto da espera. */
-
-var TIERS=[{p:450,n:1,w:10,l:'10m'},{p:675,n:2,w:15,l:'15m'},{p:1010,n:4,w:25,l:'25m'},{p:1515,n:6,w:40,l:'40m'},{p:2270,n:9,w:60,l:'1h'},{p:3000,n:12,w:90,l:'1h e 30m'}],clockT=null,curWait=3600000;
-
-
-
-/* Formata números no padrão brasileiro (1010 vira 1.010). */
-
-function fmt(n){return n.toLocaleString('pt-BR')}
-
-
-
-/* BLOQUEIO após resgatar: guarda o momento em que o resgate volta a ser liberado. */
-
-var LOCK_MS=3600000,lockUntil=0;
-
-try{lockUntil=+localStorage.getItem('apg-lock')||0}catch(e){}
-
-function setLock(ms){lockUntil=Date.now()+(ms||LOCK_MS);try{localStorage.setItem('apg-lock',lockUntil)}catch(e){}}
-
-function lockLeft(){return Math.max(0,lockUntil-Date.now())}   /* milissegundos que faltam */
-
-function mmss(ms){var t=Math.ceil(ms/1000),m=Math.floor(t/60),x=t%60;return (m<10?'0':'')+m+':'+(x<10?'0':'')+x}
-
-
-
-/* A cada 1 segundo, se a tela de recompensas estiver aberta, atualiza a contagem regressiva. */
-
-setInterval(function(){if(!$('s-rew').hidden)renderRew()},1000);
-
-
-
-/* Devolve a MAIOR faixa que a melhor pontuação alcançou (ou null). */
-
-function topTier(){var t=null;TIERS.forEach(function(x){if(best>=x.p)t=x});return t}
-
-
-
-/* Monta a tabela de faixas na tela de recompensas, uma linha por faixa. */
-
-function buildTab(){
-
-  var h='<table class="table table-dark table-sm table-borderless align-middle mb-0"><thead><tr><th>Pontos</th><th>Recompensa</th></tr></thead><tbody>';
-
-  TIERS.forEach(function(t){h+='<tr><td>'+fmt(t.p)+' pontos</td><td><b>= '+t.n+(t.n>1?' balas':' bala')+'</b><small>(aguarde '+t.l+' para receber qualquer recompensa)</small></td></tr>'});
-
-  $('rtab').innerHTML=h+'</tbody></table>';
-
-}
-
-buildTab();
-
-
-
-/* Atualiza a tela de recompensas: melhor pontuação, linhas destacadas, botão e mensagem de status. */
-
-function renderRew(){
-
-  $('best').textContent=fmt(best);
-
-  var rows=$('rtab').querySelectorAll('tbody tr');for(var i=0;i<rows.length;i++)rows[i].classList.toggle('reached',best>=TIERS[i].p);
-
-  var top=topTier(),lk=lockLeft();
-
-  $('redeem-btn').disabled=!top||lk>0;   /* desativa se não há meta alcançada ou se há bloqueio */
-
-  $('rew-st').textContent=lk>0?'Recompensas bloqueadas por mais '+mmss(lk)+'. Você poderá resgatar de novo depois desse tempo.':top?'Você vai receber '+top.n+(top.n>1?' balas':' bala')+'.':'Faltam '+fmt(TIERS[0].p-best)+' pontos para a primeira bala.';
-
-}
-
-
-
-/* Um único botão resgata automaticamente a maior faixa alcançada. */
-
-$('redeem-btn').onclick=function(){var t=topTier();if(t&&!lockLeft())redeem(t)};
-
-
-
-/* Relógio da tela de comprovação (prova de que a tela está "ao vivo"). */
-
-function tick(){$('win-clock').textContent=new Date().toLocaleTimeString('pt-BR')}
-
-
-
-/* Resgate: zera a melhor pontuação (impede resgatar duas vezes), ativa o bloqueio da faixa
-
-   e mostra a tela de comprovação. onbeforeunload pede confirmação se tentarem fechar a aba. */
-
-function redeem(t){
-
-  var pts=best;best=0;saveBest();curWait=t.w*60000;setLock(curWait);
-
-  $('win-t').textContent='Parabéns, você ganhou '+t.n+(t.n>1?' balas':' bala')+'! Vá para a mesa de onde você escaneou o QR code e receba '+(t.n>1?'suas balas':'sua bala')+' conversando com a gente.';
-
-  $('win-pts').textContent=fmt(pts)+' pontos';
-
-  $('win-done').textContent='Já recebi minhas balas';$('win-done').dataset.c='';
-
-  tick();clearInterval(clockT);clockT=setInterval(tick,1000);
-
-  window.onbeforeunload=function(e){e.preventDefault();e.returnValue='';return ''};
-
-  show('win');
-
-}
-
-
-
-/* Saída da tela de comprovação exige dois toques (confirmação). No segundo, reforça o bloqueio. */
-
-$('win-done').onclick=function(){
-
-  var b=$('win-done');
-
-  if(!b.dataset.c){b.dataset.c='1';b.textContent='Toque de novo para confirmar';return}
-
-  clearInterval(clockT);window.onbeforeunload=null;setLock(curWait);show('home');
-
-};
-
-
-
-/* Liga os botões genéricos: "Voltar" (data-back), escolha de modo (data-mode) e de dificuldade (data-d). */
-
-document.querySelectorAll('[data-back]').forEach(function(b){b.onclick=function(){show('home')}});
-
-document.querySelectorAll('[data-mode]').forEach(function(b){b.onclick=function(){setMode(b.dataset.mode)}});
-
-document.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){start(b.dataset.d)}});
-
-
-
-/* =========================================================
-
-   SONS DE EFEITO (gerados por código, sem arquivos)
-
-   ========================================================= */
-
-
-
-/* Toca um tom simples: frequência (f), duração, tipo de onda, atraso (at) e volume (vol). */
-
-function tone(f,dur,type,at,vol){
-
-  if(!ctx)return;
-
-  var o=ctx.createOscillator(),g=ctx.createGain(),t=ctx.currentTime+(at||0);
-
-  o.type=type||'square';o.frequency.setValueAtTime(f,t);
-
-  g.gain.setValueAtTime(vol||.12,t);g.gain.exponentialRampToValueAtTime(.001,t+dur);   /* o som vai sumindo */
-
-  o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+dur);
-
-}
-
-function sOk(){tone(660,.09,'square',0);tone(990,.12,'square',.08)}                    /* som de acerto */
-
-function sFail(){tone(220,.25,'sawtooth',0,.18);tone(140,.45,'sawtooth',.2,.18)}      /* som de erro */
-
-
-
-/* =========================================================
-
-   LOJA
-
-   Os pontos de cada partida viram "moedas" para personalizar o jogo.
-
-   ========================================================= */
-
-
-
-/* coins = saldo; own = itens comprados; sel = itens equipados; shopTab = aba aberta. */
-
-var coins=0,own={},sel={bg:'roxo',toy:'amarelo',font:'padrao',voice:'desenho'},shopTab='bg';
-
-try{coins=+localStorage.getItem('apg-coins')||0;own=JSON.parse(localStorage.getItem('apg-own')||'{}');Object.assign(sel,JSON.parse(localStorage.getItem('apg-sel')||'{}'))}catch(e){}
-
-function saveShop(){try{localStorage.setItem('apg-coins',coins);localStorage.setItem('apg-own',JSON.stringify(own));localStorage.setItem('apg-sel',JSON.stringify(sel))}catch(e){}}
-
-
-
-/* CATÁLOGO da Loja. Cada item tem id, nome (n), preço (p) e valores (v):
-
-   bg  = [cor clara do fundo, cor escura, cor dos cartões]
-
-   toy = [luz, cor principal, sombra interna, sombra externa]
-
-   font = nome da fonte em CSS (fs = tamanho da amostra, quando a fonte é larga)
-
-   voice = pitch (tom), rate (velocidade) e k (qual voz do aparelho usar: 'fem' ou 'male')
-
-   Para criar um item novo, basta copiar uma linha e ajustar. Preço 0 = já vem liberado. */
-
-var SHOP={
-
- bg:{n:'Fundo',items:[
-
-  {id:'roxo',n:'Roxo clássico',p:0,v:['#2a1850','#1b0f38','#3a2570']},
-
-  {id:'oceano',n:'Oceano',p:500,v:['#0d3b66','#06203a','#145a8a']},
-
-  {id:'floresta',n:'Floresta',p:500,v:['#1f5a3a','#0e2d1d','#2a7a4f']},
-
-  {id:'sol',n:'Pôr do sol',p:700,v:['#8a3a2e','#2b1033','#a04a52']},
-
-  {id:'galaxia',n:'Galáxia',p:900,v:['#1a1a2e','#05050a','#2c2c4a']}]},
-
- toy:{n:'Brinquedo',items:[
-
-  {id:'amarelo',n:'Amarelo',p:0,v:['#ffe27a','#ffc72c','#d99a00','#8f6400']},
-
-  {id:'rosa',n:'Rosa',p:400,v:['#ffb3d9','#ff5fb0','#c2307f','#7a1a50']},
-
-  {id:'azul',n:'Azul',p:400,v:['#9fd8ff','#3d9bff','#1f64c2','#123e7a']},
-
-  {id:'verde',n:'Verde',p:400,v:['#b5f5a0','#52d44a','#2c9a2e','#17621c']},
-
-  {id:'laranja',n:'Laranja',p:400,v:['#ffd199','#ff8a1f','#cc5f00','#7a3a00']}]},
-
- font:{n:'Fonte',items:[
-
-  {id:'padrao',n:'Padrão',p:0,v:"'Bowlby One','Arial Black',sans-serif"},
-
-  {id:'pacifico',n:'Pacifico',p:300,v:"'Pacifico',cursive"},
-
-  {id:'lobster',n:'Lobster',p:300,v:"'Lobster',cursive"},
-
-  {id:'bungee',n:'Bungee',p:400,fs:15,v:"'Bungee',sans-serif"},
-
-  {id:'marker',n:'Permanent Marker',p:400,v:"'Permanent Marker',cursive"},
-
-  {id:'pixel',n:'Press Start 2P',p:500,fs:11,v:"'Press Start 2P',monospace"},
-
-  {id:'creepster',n:'Creepster',p:600,v:"'Creepster',cursive"}]},
-
- voice:{n:'Voz',items:[
-
-  {id:'desenho',n:'Desenho (padrão)',p:0,pitch:1.9},
-
-  {id:'feminina',n:'Feminina',p:500,pitch:1.1,rate:1,k:'fem'},
-
-  {id:'esquilo',n:'Esquilo',p:600,pitch:2,rate:1.25},
-
-  {id:'gigante',n:'Gigante',p:600,pitch:.6,rate:.9,k:'male'},
-
-  {id:'robo',n:'Robô',p:800,pitch:.8,rate:.85}]}
-
-};
-
-
-
-/* Avisos exibidos só nas abas Fonte e Voz. */
-
-var SHOP_NOTE={font:'Na dificuldade Difícil, qualquer fonte adquirida será exibida com menor intensidade (mais apagada).',voice:'Na dificuldade Difícil, qualquer voz adquirida será reproduzida com ruído de fundo.'};
-
-
-
-/* Devolve o item equipado de uma categoria (ou o primeiro, se não achar). */
-
-function pick(c){var l=SHOP[c].items;return l.find(function(x){return x.id===sel[c]})||l[0]}
-
-
-
-/* Aplica o visual escolhido: troca as variáveis CSS direto no <html>.
-
-   Como o CSS usa var(--bg), var(--toy)..., a mudança aparece em todo o jogo na hora. */
-
-function applyTheme(){
-
-  var r=document.documentElement.style,b=pick('bg').v,t=pick('toy').v;
-
-  r.setProperty('--bg',b[0]);r.setProperty('--bg2',b[1]);r.setProperty('--card',b[2]);
-
-  r.setProperty('--toy-l',t[0]);r.setProperty('--toy',t[1]);r.setProperty('--toy-d',t[2]);r.setProperty('--toy-s',t[3]);
-
-  r.setProperty('--cmd-font',pick('font').v);
-
-}
-
-applyTheme();
-
-
-
-/* Desenha a Loja: abas, itens da aba atual (com amostra, nome e botão) e o aviso da aba. */
-
-function renderShop(){
-
-  $('coins').textContent=fmt(coins);
-
-  var h='';
-
-  Object.keys(SHOP).forEach(function(k){h+='<button class="btn opt" data-tab="'+k+'" aria-pressed="'+(k===shopTab)+'">'+SHOP[k].n+'</button>'});
-
-  $('shop-tabs').innerHTML=h;h='';
-
-  SHOP[shopTab].items.forEach(function(it){
-
-    var owned=it.p===0||own[shopTab+':'+it.id],on=sel[shopTab]===it.id,pv='';   /* owned = já possui; on = equipado; pv = amostra */
-
-    if(shopTab==='bg')pv='<span class="sw-p" style="background:radial-gradient(circle,'+it.v[0]+','+it.v[1]+')"></span>';
-
-    else if(shopTab==='toy')pv='<span class="sw-p" style="background:radial-gradient(circle at 35% 30%,'+it.v[0]+','+it.v[1]+' 50%,'+it.v[2]+')"></span>';
-
-    else if(shopTab==='font')pv='<span class="f-p" style="font-family:'+it.v+(it.fs?';font-size:'+it.fs+'px':'')+'">Aperta!</span>';
-
-    else pv='<button class="btn btn-ghost listen" data-hear="'+it.id+'">🔊 Ouvir</button>';
-
-    h+='<div class="shop-it">'+pv+'<div class="shop-n">'+it.n+'</div>'+(on?'<span class="shop-on">Equipado</span>':'<button class="btn btn-main shop-b" data-buy="'+it.id+'"'+(!owned&&coins<it.p?' disabled':'')+'>'+(owned?'Equipar':'Comprar · '+fmt(it.p))+'</button>')+'</div>';
-
-  });
-
-  $('shop-list').innerHTML=h;
-
-  var nt=$('shop-note'),tx=SHOP_NOTE[shopTab]||'';nt.textContent=tx;nt.hidden=!tx;
-
-}
-
-
-
-/* Um único "ouvinte" de clique para toda a Loja (delegação de eventos): como os botões são criados
-
-   dinamicamente, escutamos a tela inteira e descobrimos qual botão foi clicado (closest). */
-
-$('s-shop').addEventListener('click',function(e){
-
-  var b=e.target.closest('[data-tab],[data-buy],[data-hear]');if(!b)return;
-
-  if(b.dataset.tab){shopTab=b.dataset.tab;renderShop();return}                     /* trocar de aba */
-
-  if(b.dataset.hear){say('Aperta!',1,false,b.dataset.hear);return}                 /* ouvir a voz */
-
-  var it=SHOP[shopTab].items.find(function(x){return x.id===b.dataset.buy}),k=shopTab+':'+it.id;
-
-  if(it.p&&!own[k]){if(coins<it.p)return;coins-=it.p;own[k]=1}                    /* comprar, se tiver saldo */
-
-  sel[shopTab]=it.id;saveShop();applyTheme();renderShop();                         /* equipar e atualizar */
-
-});
-
-
-
-/* =========================================================
-
-   LOGIN E HALL DA FAMA
-
-   O ranking fica no Firebase (Firestore), compartilhado entre todos os jogadores.
-
-   Se a configuração FB abaixo ficar vazia, o jogo guarda tudo só no aparelho (modo de teste).
-
-   ========================================================= */
-
-var FB={key:'AIzaSyB5o9CSFFYPKM_485Gv5_u0FS98l8rPdNY',project:'bop-it-35ed7'};   /* chave (apiKey) e id do projeto do Firebase */
-
-var RANK_TEST=false;                   /* true só no modo de teste local: mostra o botão "Atualizar agora" */
-
-var FB_ON=!!(FB.key&&FB.project);
-
-var DAY=86400000,user=null,curDiff='normal';   /* DAY = 24 horas em milissegundos; user = nome do jogador */
-
-try{user=localStorage.getItem('apg-user')}catch(e){}
-
-function lsGet(k,df){try{return JSON.parse(localStorage.getItem(k))||df}catch(e){return df}}
-
-function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}
-
-function nkey(n){return n.toLowerCase()}   /* nomes iguais, mesmo com maiúsculas diferentes, contam como repetidos */
-
-var DIFFS=[['facil','Fácil'],['normal','Normal'],['dificil','Difícil']];
-
-
-
-/* --- Armazenamento 1: Firestore (REST). Cada jogador é um documento players/<id>. --- */
-
-var FB_URL='https://firestore.googleapis.com/v1/projects/'+FB.project+'/databases/(default)/documents';
-
-/* fbCall faz uma chamada ao Firestore e devolve {s: status HTTP, j: resposta em JSON}. */
-
-function fbCall(path,o){
-
-  o=o||{};
-
-  var url=FB_URL+path+(path.indexOf('?')<0?'?':'&')+'key='+FB.key+(o.q||'');
-
-  return fetch(url,{method:o.m||'GET',headers:o.b?{'Content-Type':'application/json'}:{},body:o.b?JSON.stringify(o.b):undefined}).then(function(r){
-
-    return r.json().catch(function(){return {}}).then(function(j){return {s:r.status,j:j}});
-
-  });
-
-}
-
-/* O identificador do documento é o nome em minúsculas convertido em hexadecimal: sempre válido e único. */
-
-function pid(k){return 'u_'+Array.prototype.map.call(new TextEncoder().encode(k),function(b){return ('0'+b.toString(16)).slice(-2)}).join('')}
-
-function fInt(f,n){return f&&f[n]&&f[n].integerValue?+f[n].integerValue:0}   /* lê um número inteiro de um documento do Firestore */
-
-var RANK_FB={
-
-  has:function(k){return fbCall('/players/'+pid(k)).then(function(r){if(r.s===200)return true;if(r.s===404)return false;throw new Error(r.s)})},
-
-  /* criar com documentId falha com o código 409 se o nome já existir: é isso que impede nomes repetidos */
-
-  create:function(k,name){
-
-    return fbCall('/players',{m:'POST',q:'&documentId='+pid(k),b:{fields:{name:{stringValue:name},facil:{integerValue:'0'},normal:{integerValue:'0'},dificil:{integerValue:'0'}}}}).then(function(r){if(r.s===200)return true;if(r.s===409)return false;throw new Error(r.s)});
-
-  },
-
-  score:function(k,df,pts){
-    /*
-      Lê a pontuação atual e só grava se o resultado novo for maior.
-      updateTime impede que dois aparelhos sobrescrevam um ao outro.
-      Em caso de conflito, tenta novamente com o valor mais recente.
-    */
-    var tries=0;
-    function saveMax(){
-      return fbCall('/players/'+pid(k)).then(function(r){
-        if(r.s!==200)throw new Error('Não foi possível ler o jogador ('+r.s+').');
-        var current=fInt((r.j||{}).fields||{},df);
-        if(pts<=current)return current;
-        var f={};f[df]={integerValue:String(pts)};
-        var q='&updateMask.fieldPaths='+df+'&currentDocument.updateTime='+encodeURIComponent(r.j.updateTime||'');
-        return fbCall('/players/'+pid(k),{m:'PATCH',q:q,b:{fields:f}}).then(function(w){
-          if(w.s===200)return pts;
-          if((w.s===409||w.s===412)&&tries++<3)return saveMax();
-          throw new Error('Não foi possível gravar a pontuação ('+w.s+').');
+// ################################################################
+// PARTE 2 — BANCO DE DADOS DO HALL DA FAMA (Firebase ou modo de teste)
+// ################################################################
+// ============================================================
+// db.js — camada de dados do HALL DA FAMA
+// - Com firebase-config.js preenchido: usa Firebase (Firestore + login anônimo).
+// - Sem configuração (ou sem o SDK): usa o MODO DE TESTE (localStorage + jogadores de exemplo).
+// O jogo só conversa com o objeto DB abaixo, então trocar de modo não muda o resto do código.
+// ============================================================
+const DB = (() => {
+  const DAY = 24 * 60 * 60 * 1000;   // o placar atualiza de 24h em 24h
+  const useFirebase = typeof firebase !== "undefined" && typeof FIREBASE_CONFIG !== "undefined" &&
+                      FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey !== "COLE_AQUI";
+
+  // Chave única do nome: sem acentos, minúsculo, espaços normalizados ("João" e "joao" são o mesmo nome)
+  const keyOf = name => name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+  const pick = d => ({ easyBest: d.easyBest || 0, hardBest: d.hardBest || 0, bossBestMs: d.bossBestMs || 0 });
+  const top = (players, field, desc) => Object.values(players)
+    .filter(p => p[field] > 0)
+    .sort((a, b) => desc ? b[field] - a[field] : a[field] - b[field])
+    .slice(0, 10)
+    .map(p => ({ name: p.name, value: p[field] }));
+
+  // ---------------- FIREBASE (Firestore sem Authentication/Cloud Functions) ----------------
+  if (useFirebase) {
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    const fs = firebase.firestore();
+    const ready = Promise.resolve();
+    const players = () => fs.collection("players");
+    const metaRef = fs.collection("meta").doc("leaderboard");
+
+    const readTop = async (field, dir) => {
+      const snap = await players().where(field, ">", 0).orderBy(field, dir).limit(10).get();
+      return snap.docs.map(d => ({ name: d.data().name, value: d.data()[field] }));
+    };
+
+    // Cria a fotografia apenas depois de uma pontuação válida. updatedAt marca o início
+    // do ciclo atual; após 24h, a primeira visita/processo do jogo recalcula e reinicia o ciclo.
+    const rebuildIfDue = async (forceFirst = false) => {
+      const snap = await metaRef.get();
+      const updatedAt = snap.exists && snap.data().updatedAt ? snap.data().updatedAt.toMillis() : 0;
+      if (snap.exists && Date.now() - updatedAt < DAY) return snap;
+      if (!snap.exists && !forceFirst) return snap;
+
+      const [easy, hard, boss] = await Promise.all([
+        readTop("easyBest", "desc"), readTop("hardBest", "desc"), readTop("bossBestMs", "asc")
+      ]);
+      const data = { easy, hard, boss, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+      try {
+        await metaRef.set(data);
+      } catch (e) {
+        // Outro jogador pode ter criado/atualizado o documento entre a leitura e a escrita.
+        const latest = await metaRef.get();
+        if (!latest.exists) throw e;
+        const latestAt = latest.data().updatedAt ? latest.data().updatedAt.toMillis() : 0;
+        if (Date.now() - latestAt >= DAY) throw e;
+      }
+      return metaRef.get();
+    };
+
+    return {
+      mode: "firebase", keyOf, ready,
+
+      async isNameTaken(name) {
+        const d = await players().doc(keyOf(name)).get();
+        return d.exists && d.data().name !== name;
+      },
+
+      // Nome normalizado como ID: o mesmo nome não pode ser cadastrado duas vezes.
+      async claimName(name) {
+        const ref = players().doc(keyOf(name));
+        return fs.runTransaction(async t => {
+          const d = await t.get(ref);
+          if (d.exists) {
+            return keyOf(d.data().name) === keyOf(name)
+              ? { ok: true, record: pick(d.data()) }
+              : { ok: false, reason: "taken" };
+          }
+          t.set(ref, { name, createdAt: firebase.firestore.FieldValue.serverTimestamp(), easyBest: 0, hardBest: 0, bossBestMs: 0 });
+          return { ok: true, record: pick({}) };
         });
-      });
+      },
+
+      async submit(me, field, value) {
+        if (!["easyBest", "hardBest", "bossBestMs"].includes(field) || !(value > 0)) return;
+        const ref = players().doc(keyOf(me.name));
+        await fs.runTransaction(async t => {
+          const d = await t.get(ref);
+          if (!d.exists) throw new Error("Jogador não encontrado no Hall da Fama.");
+          const old = d.data()[field] || 0;
+          const better = field === "bossBestMs" ? (!old || value < old) : value > old;
+          if (better) t.update(ref, { [field]: value });
+        });
+        // A primeira pontuação válida inicia o ciclo; depois, o ranking só é refeito
+        // quando completadas 24h. O ciclo seguinte começa imediatamente na atualização.
+        await rebuildIfDue(true);
+      },
+
+      async getLeaderboards() {
+        // Sempre consulta os jogadores diretamente ao abrir o Hall da Fama.
+        // Não depende da fotografia "meta/leaderboard", que pode ficar vazia
+        // ou desatualizada por até 24 horas.
+        const [easy, hard, boss] = await Promise.all([
+          readTop("easyBest", "desc"),
+          readTop("hardBest", "desc"),
+          readTop("bossBestMs", "asc")
+        ]);
+        return { easy, hard, boss, updatedAt: Date.now() };
+      }
+    };
+  }
+
+  // ---------------- MODO DE TESTE (local) ----------------
+  const PK = "cybertech_players", SK = "cybertech_snapshot", UK = "cybertech_user";
+  const read = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? d : v; } catch (e) { return d; } };
+  const write = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  const demo = () => {   // jogadores de exemplo, só para ver o Hall da Fama funcionando
+    const p = {};
+    ["NEO_X", "TRINITY", "GHOST_99", "CIPHER", "NOVA", "ZERO_COOL", "BYTE", "ECHO", "VOLT", "RAZOR", "PIXEL", "KAIRO"]
+      .forEach((n, i) => { p[keyOf(n)] = { name: n, easyBest: 42 - i * 3, hardBest: 30 - i * 2, bossBestMs: 250000 + i * 17000 }; });
+    return p;
+  };
+  const players = () => { let p = read(PK, null); if (!p) { p = demo(); write(PK, p); } return p; };
+  const mine = name => { const u = read(UK, null); return !!u && keyOf(u.name) === keyOf(name); };
+
+  return {
+    mode: "local", keyOf, ready: Promise.resolve(),
+
+    async isNameTaken(name) { return !!players()[keyOf(name)] && !mine(name); },
+
+    async claimName(name) {
+      const p = players(), k = keyOf(name);
+      if (p[k]) return mine(name) ? { ok: true, record: pick(p[k]) } : { ok: false, reason: "taken" };
+      p[k] = { name, easyBest: 0, hardBest: 0 };
+      write(PK, p);
+      return { ok: true, record: pick({}) };
+    },
+
+    async submit(me, field, value) {
+      const p = players(), k = keyOf(me.name);
+      p[k] = p[k] || { name: me.name, easyBest: 0, hardBest: 0 };
+      const better = field === "bossBestMs" ? (!p[k][field] || value < p[k][field]) : value > (p[k][field] || 0);
+      if (better) { p[k][field] = value; write(PK, p); }
+    },
+
+    async getLeaderboards() {
+      let snap = read(SK, null);
+      if (!snap || Date.now() - snap.updatedAt >= DAY) {
+        const p = players();
+        snap = { updatedAt: Date.now(), easy: top(p, "easyBest", true), hard: top(p, "hardBest", true), boss: top(p, "bossBestMs", false) };
+        write(SK, snap);
+      }
+      return snap;
     }
-    if(['facil','normal','dificil'].indexOf(df)<0)return Promise.reject(new Error('Dificuldade inválida.'));
-    if(!Number.isFinite(pts)||pts<0)return Promise.reject(new Error('Pontuação inválida.'));
-    return saveMax();
-  },
+  };
+})();
 
-  top:function(df){   /* os 10 maiores de uma dificuldade (só 10 leituras) */
+// ################################################################
+// PARTE 3 — O JOGO
+// ################################################################
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
 
-    return fbCall(':runQuery',{m:'POST',b:{structuredQuery:{from:[{collectionId:'players'}],orderBy:[{field:{fieldPath:df},direction:'DESCENDING'}],limit:10}}}).then(function(r){
+// CONFIGURAÇÕES
+const TOTAL_OBSTACLES = 50;
+const SPEED = 420;
+const GAME_TIME = 120;
+const STICK_MAX = 55;
+const OBSTACLE_GAP = 55;
+const DOUBLE_TAP_MS = 300;
+const SLOW_FACTOR = 0.5;
+const ITEMS_PER_SHUFFLE = 5;
+const SHUFFLE_SAFE_DISTANCE = 70;
+const SPIKE_DAMAGE = 2;     // dano dos blocos com espinho (modo difícil)
+const INVULN_TIME = 1;      // segundos de invulnerabilidade após tomar dano de espinho
+const FADE_TIME = 2.5;      // segundos que o jogador leva para voltar a 100% visível após o dano
+const MAGNET_RADIUS = 110;  // alcance do ímã (azul/vermelho), só para blocos vermelhos
+const MAGNET_TIME = 5;      // duração do ímã
+const SHIELD_TIME = 3;      // duração da invencibilidade (bloco verde)
+const POWERUP_LIFE = 8;     // quanto tempo um power-up fica no mapa
+const DEBUFF_EVERY = 15;    // modo difícil: um debuff a cada 15 s
+const DEBUFF_TIME = 10;     // duração de cada debuff
+const HARD_ITEM_POINTS = 2; // pontos por bloco vermelho no difícil
+const STAMINA_MAX = 100;    // stamina total
+const STAMINA_DRAIN = 25;   // gasto por segundo ao correr (≈4 s de corrida)
+const STAMINA_REGEN = 15;   // recuperação por segundo ao não correr
+const STAMINA_RESUME = 30;  // depois de zerar, só volta a correr ao recuperar isso
 
-      if(r.s!==200)throw new Error(r.s);
+// ESTADO
+let screen = "menu";        // telas do jogo
+let mode = "easy";          // "easy" | "hard"
+let player = { x: 0, y: 0, size: 40 };
+let item = { x: 0, y: 0, size: 20 };
+let obstacles = [];
+let floats = [];
+let score = 0, collected = 0, timeLeft = GAME_TIME, elapsed = 0, invuln = 0, fade = 0;
+let gameOver = false;
+let flash = 0, flashColor = "#fff";
+let last = 0, running = false, stick = null, audio = null;
+let paused = false;
+let controlMode = localStorage.getItem("ctg_control_mode") === "analog" ? "analog" : "arrows";
+let musicVolumePercent = Math.max(0, Math.min(100, Number(localStorage.getItem("ctg_music_volume") ?? 50)));
+let stamina = STAMINA_MAX, exhausted = false, staminaDelay = 0;
+let powerups = [], puTimer = 6, magnetTime = 0, shield = 0;
+let debuff = null, debuffTime = 0, nextDebuffAt = DEBUFF_EVERY, fake = null;
+const keys = new Set();
+const lastPress = {};
 
-      return (r.j||[]).filter(function(x){return x.document}).map(function(x){return {n:x.document.fields.name.stringValue,s:fInt(x.document.fields,df)}}).filter(function(x){return x.s>0});
+// SOM
+function initAudio() {
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
+}
+function beep(freq, dur) {
+  try {
+    if (!audio) return;
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.frequency.value = freq; o.type = "square";
+    g.gain.setValueAtTime(0.06, audio.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + dur);
+    o.connect(g); g.connect(audio.destination);
+    o.start(); o.stop(audio.currentTime + dur);
+  } catch (e) {}
+}
 
-    });
+// UTILIDADES
+const W = () => canvas.width, H = () => canvas.height;
 
-  },
+function overlap(a, b, m = 0) {
+  return a.x < b.x + b.size + m && a.x + a.size > b.x - m &&
+         a.y < b.y + b.size + m && a.y + a.size > b.y - m;
+}
 
-  getSnap:function(){   /* lê a "fotografia" do ranking (meta/snapshot) */
+function pauseButtonZone() { return { x: W()/2 - 22, y: 8, size: 44, gap: 4, fixed: true }; }
 
-    return fbCall('/meta/snapshot').then(function(r){
+function safePosition(size, avoid, margin) {
+  let pos;
+  for (const scale of [1, 0.8, 0.6, 0.4]) {
+    for (let i = 0; i < 150; i++) {
+      pos = {
+        x: Math.floor(Math.random() * Math.max(1, W() - size)),
+        y: Math.floor(Math.random() * Math.max(1, H() - size))
+      };
+      const box = { x: pos.x, y: pos.y, size };
+      if (!avoid.some(o => overlap(box, o, (o.gap ?? margin) * (o.fixed ? 1 : scale)))) return pos;
+    }
+  }
+  return pos;
+}
 
-      if(r.s===404)return null;if(r.s!==200)throw new Error(r.s);
+function clampEntity(e) {
+  e.x = Math.max(0, Math.min(e.x, W() - e.size));
+  e.y = Math.max(0, Math.min(e.y, H() - e.size));
+}
 
-      var f=r.j.fields||{},sn=JSON.parse(f.data.stringValue);sn.t=Date.parse(f.t.timestampValue);return sn;
+// No modo boss, mantém o jogador fora da faixa superior reservada às estatísticas.
+const BOSS_HUD_SAFE_Y = 110;
+function keepPlayerBelowBossHud() {
+  if (mode === "boss" && screen === "playing") {
+    player.y = Math.max(BOSS_HUD_SAFE_Y, Math.min(player.y, H() - player.size));
+  }
+}
 
-    });
+function resizeCanvas() {
+  canvas.width = Math.max(100, window.innerWidth - 10);
+  canvas.height = Math.max(100, window.innerHeight - 10);
+  [player, item, ...obstacles].forEach(clampEntity);
+  obstacles.forEach(o => {
+    if (o.ax !== undefined) { o.ax = Math.max(0, Math.min(o.ax, W() - o.size)); o.ay = Math.max(0, Math.min(o.ay, H() - o.size)); }
+  });
+}
+window.addEventListener("resize", resizeCanvas);
 
-  },
+// Modo fácil: reposiciona os brancos longe do jogador
+function shuffleObstacles() {
+  const safe = Math.min(SHUFFLE_SAFE_DISTANCE, Math.min(W(), H()) / 4);
+  const zone = { x: player.x, y: player.y, size: player.size, gap: safe, fixed: true };
+  const placed = [];
+  obstacles.forEach(obs => {
+    const pos = safePosition(obs.size, [zone, item, ...powerupZones(), ...placed], 40);
+    obs.x = pos.x; obs.y = pos.y;
+    placed.push(obs);
+  });
+  floats.push({ x: W() / 2 - 90, y: H() / 2, text: "BLOCOS MUDARAM!", color: "#00ACFF", life: 0.8 });
+  beep(520, 0.25);
+}
 
-  /* grava a fotografia com a hora do SERVIDOR; as regras recusam se tiver menos de 24h (outro aparelho já atualizou) */
+// Quantidade e espaçamento dos blocos brancos conforme o tamanho da tela
+function obstacleSettings() {
+  const area = W() * H();
+  const count = Math.max(10, Math.min(TOTAL_OBSTACLES, Math.round(TOTAL_OBSTACLES * area / 800000)));
+  const small = area < 600000;   // tela pequena (celular)
+  // Em telas pequenas: menos blocos e mais folga entre eles (entre 55 e 80 px)
+  const gap = small
+    ? Math.min(80, Math.max(OBSTACLE_GAP, Math.floor(Math.sqrt(area * 0.55 / count)) - 25))
+    : OBSTACLE_GAP;
+  return { count, gap, small };
+}
 
-  setSnap:function(sn){
+// INICIAR / REINICIAR PARTIDA
+function startGame() {
+  screen = "playing";
+  player.x = W() / 2 - player.size / 2;
+  player.y = H() / 2 - player.size / 2;
+  score = 0; collected = 0; elapsed = 0; invuln = 0; fade = 0;
+  timeLeft = GAME_TIME; gameOver = false;
+  floats = []; flash = 0; stick = null; running = false; keys.clear(); paused = false;
+  stamina = STAMINA_MAX; exhausted = false; staminaDelay = 0;
+  shake = 0; furyFlash = 0; kb.x = 0; kb.y = 0;   // zera o tremor de tela
+  powerups = []; puTimer = 6; magnetTime = 0; shield = 0;
+  debuff = null; debuffTime = 0; nextDebuffAt = DEBUFF_EVERY; fake = null;
 
-    var d={facil:sn.facil,normal:sn.normal,dificil:sn.dificil};
-
-    return fbCall(':commit',{m:'POST',b:{writes:[{update:{name:'projects/'+FB.project+'/databases/(default)/documents/meta/snapshot',fields:{data:{stringValue:JSON.stringify(d)}}},updateTransforms:[{fieldPath:'t',setToServerValue:'REQUEST_TIME'}]}]}}).then(function(){},function(){});
-
+  endTitle = "TEMPO ESGOTADO!"; endSub = ""; endColor = "yellow";
+  if (mode === "boss") {   // sem obstáculos e sem blocos de pontuação
+    obstacles = []; item.x = -200; item.y = -200;
+    playerHP = PLAYER_MAX_HP; boss = null; drop = null; wave = null;
+    shake = 0; furyFlash = 0; kb.x = 0; kb.y = 0; bossStage = "intro"; stageT = 0;
+    bossIdx = 0; firstOpportunityShown.clear(); clearHazards(); runTime = 0;
+    return;
   }
 
-};
+  const hard = mode === "hard";
+  const p = safePosition(item.size, [player, pauseButtonZone()], 80);
+  item.x = p.x; item.y = p.y;
 
-
-
-/* --- Armazenamento 2: só neste aparelho (modo de teste, sem Firebase). --- */
-
-var RANK_LOCAL={
-
-  has:function(k){return Promise.resolve(!!lsGet('apg-players',{})[k])},
-
-  create:function(k,name){var p=lsGet('apg-players',{});if(p[k])return Promise.resolve(false);p[k]={name:name,facil:0,normal:0,dificil:0};lsSet('apg-players',p);return Promise.resolve(true)},
-
-  score:function(k,df,pts){var p=lsGet('apg-players',{});if(p[k]&&pts>p[k][df]){p[k][df]=pts;lsSet('apg-players',p)}return Promise.resolve()},
-
-  top:function(df){var p=lsGet('apg-players',{});return Promise.resolve(Object.keys(p).map(function(k){return {n:p[k].name,s:p[k][df]}}).filter(function(x){return x.s>0}).sort(function(a,b){return b.s-a.s}).slice(0,10))},
-
-  getSnap:function(){return Promise.resolve(lsGet('apg-snap',null))},
-
-  setSnap:function(sn){lsSet('apg-snap',sn);return Promise.resolve()}
-
-};
-
-/* RANK é o armazenamento em uso: Firestore se a configuração FB estiver preenchida, senão o local. */
-
-var RANK=FB_ON?RANK_FB:RANK_LOCAL;
-
-
-
-/* --- Login --- */
-
-var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;   /* nameStep: 0 = 1º toque, 1 = aguardando confirmação */
-
-function nameSay(t,w){nameMsg.textContent=t;nameMsg.hidden=!t;nameMsg.className='name-msg'+(w?' warn2':'')}
-
-function nameReset(){nameStep=0;nameBtn.textContent='Continuar';nameSay('')}
-
-function netErr(){nameSay('Não foi possível conectar ao servidor. Verifique a internet e tente novamente.')}
-
-nameIn.addEventListener('input',function(){$('name-count').textContent=nameIn.value.length;if(nameStep)nameReset()});   /* editar o nome recomeça a confirmação */
-
-nameBtn.onclick=function(){
-
-  var n=nameIn.value.replace(/\s+/g,' ').trim(),k=nkey(n);
-
-  if(n.length<2){nameSay('Informe um nome com pelo menos 2 caracteres.');return}
-
-  if(!/^[\p{L}\p{N} ._-]+$/u.test(n)){nameSay('Utilize apenas letras, números, espaços, ponto, hífen e sublinhado.');return}
-
-  if(nameStep===0){   /* 1º toque: valida e avisa que o nome não poderá ser trocado */
-
-    RANK.has(k).then(function(t){
-
-      if(t){nameSay('Este nome de usuário já está em uso. Escolha outro.');return}
-
-      nameStep=1;nameBtn.textContent='Confirmar nome';
-
-      nameSay('Atenção: após a confirmação, o nome de usuário não poderá ser alterado. Toque novamente para confirmar.',true);
-
-    }).catch(netErr);
-
-  }else{              /* 2º toque: cria o jogador (a criação confere o nome de novo) */
-
-    RANK.create(k,n).then(function(ok){
-
-      if(!ok){nameReset();nameSay('Este nome de usuário já está em uso. Escolha outro.');return}
-
-      user=n;try{localStorage.setItem('apg-user',n)}catch(e){}
-
-      show('home');
-
-    }).catch(netErr);
-
+  const cfg = obstacleSettings();
+  const playerMargin = Math.min(hard ? 130 : 70, Math.min(W(), H()) / 3);
+  obstacles = [];
+  for (let i = 0; i < cfg.count; i++) {
+    const o = { size: 25, gap: cfg.gap };
+    if (hard) {   // movimento de vai-e-vem contínuo
+      o.axis = Math.random() < 0.5 ? 0 : 1;
+      o.amp = (30 + Math.random() * 50) * (cfg.small ? 0.6 : 1);   // vai-e-vem menor em tela pequena
+      o.spd = 1 + Math.random() * 1.5;
+      o.phase = Math.random() * Math.PI * 2;
+    }
+    const pos = safePosition(o.size, [player, item, ...obstacles], playerMargin);
+    o.x = pos.x; o.y = pos.y;
+    if (hard) { o.ax = pos.x; o.ay = pos.y; }
+    obstacles.push(o);
   }
+}
 
-};
+// RECOMPENSAS
+const REWARDS = [
+  { pts: 6,  balas: 1,  wait: "10m" },
+  { pts: 10, balas: 2,  wait: "15m" },
+  { pts: 16, balas: 4,  wait: "25m" },
+  { pts: 24, balas: 6,  wait: "40m" },
+  { pts: 40, balas: 9,  wait: "1h" },
+  { pts: 60, balas: 12, wait: "1h e 30m" }
+];
+const BEST_KEY = "cybertech_best_score";
+const WAIT_MS = [10, 15, 25, 40, 60, 90].map(m => m * 60000);   // espera de cada faixa (mesma ordem de REWARDS)
+const COOL_KEY = "cybertech_cooldown";
+const CONFIRM_MS = 5000;    // tempo para dar o 2º clique de confirmação
+let cooldownUntil = 0, lastClaim = null, confirmArmedAt = 0;
+const cooldownLeft = () => Math.max(0, cooldownUntil - Date.now());
+const canClaimNow = pts => !!tierFor(pts) && cooldownLeft() === 0;
+const isArmed = () => confirmArmedAt > 0 && performance.now() - confirmArmedAt < CONFIRM_MS;
 
+function fmtTime(ms) {
+  const t = Math.ceil(ms / 1000), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+  const p = n => String(n).padStart(2, "0");
+  return (h > 0 ? h + ":" : "") + p(m) + ":" + p(s);
+}
+function loadCooldown() {
+  try {
+    const d = JSON.parse(localStorage.getItem(COOL_KEY) || "null");
+    if (d && d.until > Date.now()) { cooldownUntil = d.until; lastClaim = { balas: d.balas, wait: d.wait }; }
+  } catch (e) {}
+}
+function saveCooldown() {
+  try { localStorage.setItem(COOL_KEY, JSON.stringify({ until: cooldownUntil, balas: lastClaim.balas, wait: lastClaim.wait })); } catch (e) {}
+}
+let bestScore = 0;          // melhor pontuação em uma única partida
+let claim = null;           // dados da tela de parabéns
 
+const balasText = n => n + (n === 1 ? " bala" : " balas");
+function tierFor(points) {
+  let t = null;
+  REWARDS.forEach(r => { if (points >= r.pts) t = r; });
+  return t;
+}
+function loadBest() { try { bestScore = parseInt(localStorage.getItem(BEST_KEY)) || 0; } catch (e) {} }
+function saveBest() { try { localStorage.setItem(BEST_KEY, String(bestScore)); } catch (e) {} }
+function recordBest() { if (score > bestScore) { bestScore = score; saveBest(); } }
 
-/* --- Hall da Fama --- */
+function openClaim(points) {
+  const t = tierFor(points);
+  if (!t || cooldownLeft() > 0) return;
+  claim = { points, balas: t.balas, waitMs: WAIT_MS[REWARDS.indexOf(t)], waitLabel: t.wait,
+            time: new Date().toLocaleTimeString("pt-BR") };
+  confirmArmedAt = 0;
+  screen = "congrats";
+  beep(880, 0.2);
+}
 
-function dt(t){return new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
+function wrapText(text, maxW) {
+  const lines = []; let cur = "";
+  text.split(" ").forEach(w => {
+    const t = cur ? cur + " " + w : w;
+    if (ctx.measureText(t).width > maxW && cur) { lines.push(cur); cur = w; } else cur = t;
+  });
+  if (cur) lines.push(cur);
+  return lines;
+}
 
-/* Desenha as 3 seções (Fácil, Normal e Difícil). O 1º recebe a classe gold, o 2º silver, o 3º bronze e os demais white. */
+function rewardsLayout() {
+  const pw = Math.min(W() - 30, 560), px = W() / 2 - pw / 2;
+  const rh = Math.max(34, Math.min(50, (H() - 300) / 6));
+  const ty = 62, hh = 26, tb = ty + hh + 6 * rh;
+  const cooling = cooldownLeft() > 0, extra = cooling ? 18 : 0;
+  const canClaim = bestScore >= REWARDS[0].pts && !cooling;
+  const bw = Math.min(300, W() - 40);
+  return {
+    pw, px, rh, ty, hh, tb,
+    buttons: [
+      { id: "claim", label: "RESGATAR RECOMPENSA", font: 20, color: canClaim ? "#4dff88" : "#555", x: W() / 2 - bw / 2, y: tb + 72 + extra, w: bw, h: 50 },
+      { id: "back", label: "VOLTAR", font: 18, outline: true, x: W() / 2 - 70, y: tb + 130 + extra, w: 140, h: 40 }
+    ]
+  };
+}
 
-function drawHall(sn){
+function drawRewards() {
+  const L = rewardsLayout();
+  drawTitle("RECOMPENSAS", 34, 42, "yellow");
 
-  $('hall-info').textContent='Pontuações consultadas no servidor em '+dt(sn.t)+'.';
+  ctx.fillStyle = "rgba(255,255,255,0.07)";
+  ctx.fillRect(L.px, L.ty, L.pw, L.hh + 6 * L.rh);
+  ctx.strokeStyle = "yellow"; ctx.lineWidth = 2;
+  ctx.strokeRect(L.px, L.ty, L.pw, L.hh + 6 * L.rh);
 
-  var box=$('hall');box.textContent='';
+  const c2 = L.px + L.pw * 0.36, full = L.pw >= 480;
+  ctx.fillStyle = "yellow"; ctx.font = "bold 14px Arial";
+  ctx.fillText("Pontos", L.px + 16, L.ty + 18);
+  ctx.fillText("Recompensa", c2, L.ty + 18);
 
-  DIFFS.forEach(function(d){
-
-    var sec=document.createElement('div');sec.className='hall-sec';
-
-    var h=document.createElement('h3');h.textContent='Top 10 · '+d[1];sec.appendChild(h);
-
-    var list=sn[d[0]]||[];
-
-    if(!list.length){var e=document.createElement('p');e.className='hall-empty';e.textContent='Nenhum jogador pontuou nesta dificuldade até o momento.';sec.appendChild(e)}
-
-    list.forEach(function(x,i){
-
-      var row=document.createElement('div'),ps=document.createElement('span'),nm=document.createElement('span'),pt=document.createElement('span');
-
-      row.className='hall-row';ps.className='hall-pos';ps.textContent=(i+1)+'º';
-
-      nm.className='hall-name '+(['gold','silver','bronze'][i]||'white');nm.textContent=x.n+(user&&x.n===user?' (você)':'');   /* textContent: o nome nunca vira HTML */
-
-      pt.className='hall-pts';pt.textContent=fmt(x.s);
-
-      row.appendChild(ps);row.appendChild(nm);row.appendChild(pt);sec.appendChild(row);
-
-    });
-
-    box.appendChild(sec);
-
+  const got = tierFor(bestScore);
+  REWARDS.forEach((r, i) => {
+    const y = L.ty + L.hh + i * L.rh;
+    ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(L.px, y); ctx.lineTo(L.px + L.pw, y); ctx.stroke();
+    ctx.fillStyle = r === got ? "yellow" : "white";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText(r.pts + " pontos", L.px + 16, y + L.rh / 2 + 5);
+    ctx.fillText("= " + balasText(r.balas), c2, y + L.rh / 2 - 2);
+    ctx.font = "12px Arial";
+    ctx.fillText(full ? "(aguarde " + r.wait + " para receber qualquer recompensa)" : "(aguarde " + r.wait + ")", c2, y + L.rh / 2 + 14);
   });
 
+  ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 14px Arial";
+  const left = cooldownLeft();
+  ctx.fillText(left > 0 && lastClaim
+    ? "Você resgatou " + balasText(lastClaim.balas) + " (espera de " + lastClaim.wait + ")."
+    : "Bata a meta em uma única partida e ganhe balas!", W() / 2, L.tb + 22);
+  ctx.fillText("Sua melhor pontuação: " + bestScore, W() / 2, L.tb + 42);
+  if (left > 0) {
+    ctx.fillStyle = "#ffb703"; ctx.font = "bold 17px Arial";
+    ctx.fillText("⏳ Aguarde " + fmtTime(left), W() / 2, L.tb + 64);
+    ctx.font = "bold 13px Arial";
+    ctx.fillText("para receber qualquer recompensa novamente", W() / 2, L.tb + 82);
+  } else {
+    ctx.fillStyle = got ? "#4dff88" : "#ff5a5a";
+    ctx.fillText(got ? "Você vai receber " + balasText(got.balas) + "." : "Faça pelo menos " + REWARDS[0].pts + " pontos para ganhar balas.", W() / 2, L.tb + 62);
+  }
+  ctx.textAlign = "left";
+  L.buttons.forEach(drawButton);
 }
 
-/* Mostra a fotografia guardada. Se ela tiver 24h ou mais, monta uma nova com os 10 melhores de cada dificuldade. */
+function congratsLayout() {
+  const w = Math.min(W() - 40, 460), one = claim.balas === 1;
+  ctx.font = "bold 18px Arial";
+  const msg = wrapText("Parabéns, você ganhou " + balasText(claim.balas) + "! Vá para a mesa de onde você escaneou o QR code e receba " +
+    (one ? "sua bala" : "suas balas") + " conversando com a gente.", w);
+  ctx.font = "bold 16px Arial";
+  const warn = wrapText("⚠ NÃO feche esta tela! Se fechar, não será possível comprovar que você bateu a meta de pontos para receber " +
+    (one ? "a bala." : "as balas."), w - 30);
+  const boxH = warn.length * 22 + 20;
+  const titleO = 36, msgO = titleO + 38, boxO = msgO + (msg.length - 1) * 25 + 24;
+  const infoO = boxO + boxH + 28, btnO = infoO + 20, total = btnO + 46;
+  const y0 = Math.max(10, (H() - total) / 2);
+  const bw = Math.min(300, W() - 40);
+  return {
+    w, bx: W() / 2 - w / 2, msg, warn, boxH,
+    titleY: y0 + titleO, msgY: y0 + msgO, boxY: y0 + boxO, infoY: y0 + infoO,
+    buttons: [{ id: "received", label: isArmed() ? "CLIQUE DE NOVO PARA CONFIRMAR" : "JÁ RECEBI MINHAS BALAS",
+      font: isArmed() ? 15 : 18, outline: !isArmed(), x: W() / 2 - bw / 2, y: y0 + btnO, w: bw, h: 46 }]
+  };
+}
+
+function drawCongrats() {
+  const L = congratsLayout();
+  drawTitle("PARABÉNS! 🎉", 40, L.titleY, "yellow");
+  ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 18px Arial";
+  L.msg.forEach((s, i) => ctx.fillText(s, W() / 2, L.msgY + i * 25));
+  ctx.fillStyle = "#d6213a"; ctx.fillRect(L.bx, L.boxY, L.w, L.boxH);
+  ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.strokeRect(L.bx, L.boxY, L.w, L.boxH);
+  ctx.fillStyle = "white"; ctx.font = "bold 16px Arial";
+  L.warn.forEach((s, i) => ctx.fillText(s, W() / 2, L.boxY + 26 + i * 22));
+  ctx.font = "bold 15px Arial";
+  ctx.fillText(claim.points + " pontos · " + new Date().toLocaleTimeString("pt-BR"), W() / 2, L.infoY);
+  ctx.textAlign = "left";
+  L.buttons.forEach(drawButton);
+  const b = L.buttons[0];
+  ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "13px Arial";
+  ctx.fillText("Mostre esta tela para a equipe antes de confirmar.", W() / 2, b.y + b.h + 24);
+  ctx.textAlign = "left";
+}
+
+// ===== LOGIN E HALL DA FAMA =====
+const USER_KEY = "cybertech_user";
+let me = null;                                       // { name, easyBest, hardBest, bossBestMs }
+let loginMsg = "", loginMsgOk = false, loginArmed = false, loginBusy = false;
+let hall = null, hallState = "idle", hallTab = 0;    // hallState: idle | loading | ok | error
+let runTime = 0;                                     // tempo da run no modo boss (segundos)
+const nameInput = document.getElementById("nameInput");
+
+function loadMe() { try { me = JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch (e) { me = null; } }
+function saveMe() { try { localStorage.setItem(USER_KEY, JSON.stringify(me)); } catch (e) {} }
+
+const fmtRun = ms => { const m = Math.floor(ms / 60000), sec = (ms % 60000) / 1000; return m + ":" + (sec < 10 ? "0" : "") + sec.toFixed(1); };
+const fmtDate = ms => new Date(ms).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+function fitText(text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + "…").width > maxW) t = t.slice(0, -1);
+  return t + "…";
+}
+
+// ----- recordes: envia ao banco só quando bate o recorde pessoal -----
+function submitIf(field, value) {
+  if (!me || !(value > 0)) return;
+  const better = field === "bossBestMs" ? (!me[field] || value < me[field]) : value > (me[field] || 0);
+  if (!better) return;
+  me[field] = value; saveMe();
+  DB.submit(me, field, value).catch(() => {});       // sem internet: o recorde fica salvo aqui e é reenviado depois
+}
+function submitRecord() {
+  if (mode === "easy") submitIf("easyBest", score);
+  else if (mode === "hard") submitIf("hardBest", score);
+}
+function syncMe() {                                  // reenvia recordes guardados (ex.: se estava sem internet)
+  if (!me) return;
+  DB.ready.then(() => ["easyBest", "hardBest", "bossBestMs"].forEach(f => { if (me[f]) DB.submit(me, f, me[f]).catch(() => {}); })).catch(() => {});
+}
+
+// ----- LOGIN -----
+const sanitizeName = v => v.replace(/[^\p{L}\p{N} _-]/gu, "").replace(/\s{2,}/g, " ").slice(0, 20);
+const validName = n => n.length >= 3 && n.length <= 20;
+function setLoginMsg(text, ok) { loginMsg = text; loginMsgOk = !!ok; }
+
+nameInput.addEventListener("input", () => {
+  const clean = sanitizeName(nameInput.value);
+  if (clean !== nameInput.value) nameInput.value = clean;
+  loginArmed = false; setLoginMsg("", false);        // mudou o nome: a confirmação recomeça
+});
+nameInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); loginClick(); } });
+
+async function loginClick() {
+  if (loginBusy || screen !== "login") return;
+  const name = nameInput.value.trim().replace(/\s+/g, " ");
+  if (!validName(name)) { loginArmed = false; setLoginMsg("Use de 3 a 20 caracteres (letras, números, espaço, _ ou -).", false); return; }
+  loginBusy = true;
+  try {
+    if (!loginArmed) {                               // 1º clique: confere se o nome está livre e mostra o aviso
+      setLoginMsg("Verificando...", true);
+      if (await DB.isNameTaken(name)) setLoginMsg("Esse nome já está em uso. Escolha outro.", false);
+      else { loginArmed = true; setLoginMsg("", true); }
+    } else {                                         // 2º clique: confirma e cria o nome
+      const r = await DB.claimName(name);
+      if (!r.ok) { loginArmed = false; setLoginMsg("Esse nome já está em uso. Escolha outro.", false); }
+      else { me = { name, ...r.record }; saveMe(); loginArmed = false; setLoginMsg("", true); screen = "menu"; }
+    }
+  } catch (e) {
+    loginArmed = false; setLoginMsg("Sem conexão com o servidor. Tente novamente.", false);
+  }
+  loginBusy = false;
+}
+
+let nameInputShown = false;
+function syncNameInput() {
+  const show = screen === "login";
+  if (show) nameInput.style.top = (canvas.getBoundingClientRect().top + loginLayout().inputC) + "px";
+  if (show === nameInputShown) return;
+  nameInputShown = show;
+  nameInput.classList.toggle("input-on", show);
+  if (show) setTimeout(() => nameInput.focus(), 50); else nameInput.blur();
+}
+
+function loginLayout() {
+  const compact = H() < 480;
+  const t = compact ? 6 : Math.max(10, H() / 2 - 185);
+  const inputC = compact ? t + 62 : t + 140;
+  const bw = Math.min(300, W() - 40), bh = compact ? 50 : 58;
+  const btnY = inputC + 52, w = Math.min(W() - 40, 460);
+  ctx.font = "bold 15px Arial";
+  const warn = loginArmed ? wrapText("⚠ ATENÇÃO! Você NÃO poderá trocar de nome depois. Confira se está certo e clique de novo para confirmar.", w - 24) : [];
+  return {
+    compact, inputC, w, warn, titleY: t + 40, labelY: compact ? t + 20 : t + 96, msgY: inputC + 44,
+    warnY: btnY + bh + 12, warnH: warn.length * 20 + 16,
+    buttons: [{ id: "loginOk", label: loginBusy ? "AGUARDE..." : (loginArmed ? "CLIQUE DE NOVO PARA CONFIRMAR" : "CONFIRMAR"),
+                font: loginArmed ? 15 : 22, color: loginBusy ? "#555" : "yellow", x: W() / 2 - bw / 2, y: btnY, w: bw, h: bh }]
+  };
+}
+
+function drawLogin() {
+  const L = loginLayout();
+  if (!L.compact) drawTitle("CYBER TECH GAME", 44, L.titleY, "yellow");
+  ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 18px Arial";
+  ctx.fillText("Escolha seu nome de jogador", W() / 2, L.labelY);
+  ctx.font = "bold 13px Arial";
+  if (loginMsg) { ctx.fillStyle = loginMsgOk ? "#4dff88" : "#ff5a5a"; ctx.fillText(loginMsg, W() / 2, L.msgY); }
+  else { ctx.fillStyle = "rgba(255,255,255,0.55)"; ctx.fillText(nameInput.value.length + "/20", W() / 2, L.msgY); }
+  L.buttons.forEach(drawButton);
+  if (loginArmed) {                                  // aviso: o nome não poderá ser trocado
+    const x = W() / 2 - L.w / 2;
+    ctx.fillStyle = "#d6213a"; ctx.fillRect(x, L.warnY, L.w, L.warnH);
+    ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.strokeRect(x, L.warnY, L.w, L.warnH);
+    ctx.fillStyle = "white"; ctx.font = "bold 15px Arial"; ctx.textAlign = "center";
+    L.warn.forEach((ln, i) => ctx.fillText(ln, W() / 2, L.warnY + 24 + i * 20));
+  }
+  ctx.textAlign = "left";
+}
+
+// ----- MENU -----
+function menuLayout() {
+  const cy = H() / 2, bh = H() < 450 ? 44 : 54, gap = 8, total = 4 * bh + 3 * gap, top = cy - total / 2 + 18, x = W() / 2 - 120;
+  return { top, buttons: [
+    { id: "play", label: "JOGAR", x, y: top, w: 240, h: bh },
+    { id: "hall", label: "HALL DA FAMA", font: 21, color: "#ffd700", x, y: top + bh + gap, w: 240, h: bh },
+    { id: "settings", label: "CONFIGURAÇÕES", font: 20, color: "#00e5ff", x, y: top + 2 * (bh + gap), w: 240, h: bh },
+    { id: "rewards", label: "RECOMPENSAS", font: 20, color: "#00ACFF", x, y: top + 3 * (bh + gap), w: 240, h: bh }
+  ] };
+}
+
+function settingsLayout() {
+  const cx = W() / 2, cy = H() / 2, bw = Math.min(190, (W() - 40) / 2), gap = 12;
+  const row1 = cy - 75, row2 = cy + 20;
+  return { buttons: [
+    { id: "settings_arrows", label: (controlMode === "arrows" ? "✓ " : "") + "SETINHAS", font: 18, color: controlMode === "arrows" ? "#4dff88" : "#00ACFF", x: cx - bw - gap/2, y: row1, w: bw, h: 54 },
+    { id: "settings_analog", label: (controlMode === "analog" ? "✓ " : "") + "ANALÓGICO", font: 18, color: controlMode === "analog" ? "#4dff88" : "#00ACFF", x: cx + gap/2, y: row1, w: bw, h: 54 },
+    { id: "vol_down", label: "−", font: 30, color: "#00ACFF", x: cx - 115, y: row2, w: 60, h: 50 },
+    { id: "vol_up", label: "+", font: 30, color: "#00ACFF", x: cx + 55, y: row2, w: 60, h: 50 },
+    { id: "back", label: "VOLTAR", font: 18, outline: true, x: cx - 80, y: cy + 115, w: 160, h: 42 }
+  ] };
+}
+
+function drawSettings() {
+  const cy = H() / 2;
+  drawTitle("CONFIGURAÇÕES", 34, Math.max(42, cy - 145), "#00e5ff");
+  ctx.textAlign = "center"; ctx.fillStyle = "white"; ctx.font = "bold 17px Arial";
+  ctx.fillText("Forma de movimentação", W()/2, cy - 91);
+  settingsLayout().buttons.forEach(drawButton);
+  ctx.fillStyle = "white"; ctx.font = "bold 18px Arial";
+  ctx.fillText("Volume da música: " + musicVolumePercent + "%", W()/2, cy + 5);
+  ctx.font = "13px Arial"; ctx.fillStyle = "rgba(255,255,255,.75)";
+  ctx.fillText("Ajuste de 5 em 5", W()/2, cy + 86);
+  ctx.textAlign = "left";
+}
+
+// ----- HALL DA FAMA -----
+function openHall() {
+  screen = "hall"; hallTab = 0; hallState = "loading";
+  DB.getLeaderboards().then(d => { hall = d; hallState = "ok"; }).catch(err => {
+    hallState = "error";
+    console.error("Erro ao carregar o Hall da Fama:", err);
+  });
+}
+
+function hallLayout() {
+  const compact = H() < 480, pw = Math.min(W() - 24, 560), px = W() / 2 - pw / 2;
+  const titleSize = compact ? 26 : 34, titleY = compact ? 28 : 42;
+  const tabY = compact ? 40 : 60, tabH = compact ? 30 : 38;
+  const subY = tabY + tabH + (compact ? 18 : 22), listTop = subY + 12;
+  const cols = compact ? 2 : 1, perCol = 10 / cols;
+  const rh = compact ? 24 : Math.max(22, Math.min(32, (H() - listTop - 130) / 10));
+  const footY = listTop + perCol * rh + 18;
+  const backH = compact ? 34 : 44, backY = footY + (compact ? 34 : 42);
+  const tw = (pw - 16) / 3, labels = ["FÁCIL", "DIFÍCIL", "BOSS"];
+  const buttons = labels.map((l, i) => ({ id: "tab" + i, label: l, font: compact ? 14 : 16, outline: i !== hallTab,
+                                          color: "#ffd700", x: px + i * (tw + 8), y: tabY, w: tw, h: tabH }));
+  buttons.push({ id: "back", label: "VOLTAR", font: 18, outline: true, x: W() / 2 - 80, y: backY, w: 160, h: backH });
+  return { compact, pw, px, titleSize, titleY, subY, listTop, cols, perCol, rh, footY, buttons };
+}
+
+function drawHall() {
+  const L = hallLayout();
+  drawTitle("HALL DA FAMA", L.titleSize, L.titleY, "#ffd700");
+  L.buttons.forEach(drawButton);
+  ctx.textAlign = "center"; ctx.fillStyle = "#00e5ff"; ctx.font = "bold 14px Arial";
+  ctx.fillText(["Mais pontos · Clássico Fácil", "Mais pontos · Clássico Difícil", "Menor tempo para vencer os 3 bosses"][hallTab], W() / 2, L.subY);
+
+  if (hallState !== "ok") {
+    ctx.fillStyle = hallState === "error" ? "#ff5a5a" : "white"; ctx.font = "bold 16px Arial";
+    ctx.fillText(hallState === "error" ? "Não foi possível carregar o placar. Tente de novo mais tarde." : "Carregando...", W() / 2, L.listTop + 60);
+    ctx.textAlign = "left";
+    return;
+  }
+
+  const list = hall[["easy", "hard", "boss"][hallTab]] || [], colW = L.pw / L.cols;
+  for (let i = 0; i < 10; i++) {
+    const col = Math.floor(i / L.perCol), row = i % L.perCol;
+    const x = L.px + col * colW, y = L.listTop + row * L.rh, w = colW - (L.cols > 1 && col === 0 ? 6 : 0), cyRow = y + L.rh / 2 + 5;
+    ctx.fillStyle = i % 2 ? "rgba(255,255,255,0.04)" : "rgba(255,255,255,0.09)"; ctx.fillRect(x, y, w, L.rh - 2);
+    const e = list[i];
+    ctx.textAlign = "left"; ctx.font = "bold 15px Arial";
+    ctx.fillStyle = "rgba(255,255,255,0.8)"; ctx.fillText((i + 1) + "º", x + 8, cyRow);
+    ctx.fillStyle = e ? (["#ffd700", "#c0c0c0", "#cd7f32"][i] || "white") : "rgba(255,255,255,0.3)";   // ouro, prata, bronze, resto branco
+    ctx.fillText(e ? fitText(e.name, w - 44 - 86) : "---", x + 42, cyRow);
+    if (e) { ctx.fillStyle = "#dddddd"; ctx.textAlign = "right"; ctx.fillText(hallTab === 2 ? fmtRun(e.value) : e.value + " pts", x + w - 10, cyRow); }
+  }
+
+  ctx.textAlign = "center"; ctx.fillStyle = "rgba(255,255,255,0.75)"; ctx.font = "12px Arial";
+  ctx.fillText(DB.mode === "local" ? "MODO DE TESTE · dados de exemplo salvos só neste aparelho"
+                                   : "O placar atualiza a cada 24h · última: " + fmtDate(hall.updatedAt), W() / 2, L.footY);
+  if (me) ctx.fillText("Seus recordes: Fácil " + (me.easyBest || 0) + " · Difícil " + (me.hardBest || 0) +
+                       " · Boss " + (me.bossBestMs ? fmtRun(me.bossBestMs) : "--"), W() / 2, L.footY + 16);
+  ctx.textAlign = "left";
+}
+
+// TELAS / BOTÕES
+function getButtons() {
+  const cx = W() / 2, cy = H() / 2;
+  if (screen === "login") return loginLayout().buttons;
+  if (screen === "hall") return hallLayout().buttons;
+  if (screen === "settings") return settingsLayout().buttons;
+  if (screen === "rewards") return rewardsLayout().buttons;
+  if (screen === "congrats") return congratsLayout().buttons;
+  if (screen === "menu") return menuLayout().buttons;
+  if (screen === "modes")
+    return [
+      { id: "classic", label: "CLÁSSICO", sub: "Blocos, power-ups e dificuldades", color: "#4dff88", x: cx - 190, y: cy - 60, w: 380, h: 75 },
+      { id: "boss", label: "BOSS", sub: "Enfrente os chefes da CYBERÓPOLIS", color: "#ff5a5a", x: cx - 190, y: cy + 35, w: 380, h: 75 },
+      { id: "back", label: "VOLTAR AO MENU", font: 18, outline: true, x: cx - 120, y: cy + 128, w: 240, h: 46 }
+    ];
+  if (screen === "difficulty")
+    return [
+      { id: "easy", label: "FÁCIL", sub: "Blocos trocam de lugar a cada 5 vermelhos", color: "#4dff88", x: cx - 190, y: cy - 60, w: 380, h: 75 },
+      { id: "hard", label: "DIFÍCIL", sub: "Espinhos (-2) que se movem sem parar", color: "#ff5a5a", x: cx - 190, y: cy + 35, w: 380, h: 75 },
+      { id: "back", label: "VOLTAR", font: 18, outline: true, x: cx - 120, y: cy + 128, w: 240, h: 46 }
+    ];
+  if (screen === "playing" && gameOver) {
+    const reached = canClaimNow(score), y0 = cy + 20, dy = reached ? 72 : 0, list = [];
+    const bw = Math.min(310, W() - 30), bx = cx - bw / 2;   // largura única para os 3 botões
+    if (reached) list.push({ id: "claimNow", label: "RESGATAR RECOMPENSA", font: 19, color: "#4dff88", x: bx, y: y0, w: bw, h: 60 });
+    list.push(
+      { id: "again", label: "JOGAR NOVAMENTE", font: 20, x: bx, y: y0 + dy, w: bw, h: 60 },
+      { id: "menu", label: "MENU INICIAL", font: 18, color: "#00ACFF", x: bx, y: y0 + dy + 72, w: bw, h: 46 }
+    );
+    return list;
+  }
+  if (screen === "playing" && paused)
+    return [
+      { id: "resume", label: "CONTINUAR", font: 22, x: cx - 115, y: cy - 20, w: 230, h: 60 },
+      { id: "menu", label: "MENU INICIAL", font: 18, color: "#00ACFF", x: cx - 115, y: cy + 52, w: 230, h: 46 }
+    ];
+  if (screen === "playing" && !(mode === "boss" && bossStage === "cutscene"))
+    return [{ id: "pause", label: "II", font: 20, color: "#00ACFF", x: cx - 22, y: 8, w: 44, h: 36 }];
+  return [];
+}
+
+// Confirma antes de abandonar uma partida em andamento.
+// No Clássico, informa os pontos acumulados que serão perdidos ao sair.
+// No modo BOSS, deixa claro que sair não concede recompensa nem recorde de conclusão.
+function confirmReturnToMenu() {
+  if (screen !== "playing" || gameOver) {
+    screen = "menu";
+    paused = false;
+    keys.clear(); running = false; stick = null;
+    return;
+  }
+
+  let message;
+  if (mode === "boss") {
+    message = "ATENÇÃO!\n\nSe você voltar ao menu agora, receberá NADA desta partida.\n\nTem certeza de que deseja voltar ao menu?";
+  } else {
+    message = "Você acumulou " + score + " ponto" + (score === 1 ? "" : "s") +
+      " nesta partida.\n\nSe voltar ao menu agora, esses pontos não serão contabilizados no Hall da Fama.\n\nDeseja mesmo voltar ao menu?";
+  }
 
 
-function renderHall(force) {
-  $('hall-info').textContent = 'Consultando as pontuações mais recentes...';
+if (window.confirm(message)) {
+  // No modo Clássico, registra os pontos desta partida
+  // como recorde, sem somar com partidas anteriores.
+  if (mode === "easy" || mode === "hard") {
+    const field = mode === "easy" ? "easyBest" : "hardBest";
 
-  Promise.all(
-    DIFFS.map(function(d) {
-      return RANK.top(d[0]);
-    })
-  )
-    .then(function(l) {
-      drawHall({
-        t: Date.now(),
-        facil: l[0],
-        normal: l[1],
-        dificil: l[2]
-      });
-    })
-    .catch(function(err) {
-      $('hall-info').textContent =
-        'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
+    if (score > 0 && score > bestScore) {
+      bestScore = score;
+      saveBest();
 
-      console.error('Erro ao carregar o Hall da Fama:', err);
+      if (DB && typeof DB.submit === "function") {
+        DB.submit({ name: playerName }, field, score)
+          .catch(err => console.error("Erro ao salvar recorde:", err));
+      }
+    }
+  }
+
+  screen = "menu";
+  paused = false;
+  gameOver = false;
+  keys.clear();
+  running = false;
+  stick = null;
+}
+
+}
+
+function press(id) {
+  if (id === "play") screen = "modes";
+  else if (id === "hall") openHall();
+  else if (id === "settings") screen = "settings";
+  else if (id === "settings_arrows") { controlMode = "arrows"; localStorage.setItem("ctg_control_mode", controlMode); }
+  else if (id === "settings_analog") { controlMode = "analog"; localStorage.setItem("ctg_control_mode", controlMode); }
+  else if (id === "vol_down") setMusicVolume(musicVolumePercent - 5);
+  else if (id === "vol_up") setMusicVolume(musicVolumePercent + 5);
+  else if (id.startsWith("tab")) hallTab = +id.slice(3);
+  else if (id === "loginOk") loginClick();
+  else if (id === "classic") screen = "difficulty";
+  else if (id === "boss") { mode = "boss"; startGame(); }
+  else if (id === "rewards") screen = "rewards";
+  else if (id === "back") screen = "menu";
+  else if (id === "claim") { if (bestScore >= REWARDS[0].pts) openClaim(bestScore); }
+  else if (id === "claimNow") openClaim(score);
+  else if (id === "received") {
+    if (!isArmed()) { confirmArmedAt = performance.now(); return; }   // 1º clique: só arma a confirmação
+    confirmArmedAt = 0;
+    if (claim) {
+      cooldownUntil = Date.now() + claim.waitMs;                      // espera para QUALQUER recompensa
+      lastClaim = { balas: claim.balas, wait: claim.waitLabel };
+      saveCooldown();
+      if (bestScore <= claim.points) { bestScore = 0; saveBest(); }   // meta já resgatada
+    }
+    claim = null; screen = "rewards";
+  }
+  else if (id === "easy" || id === "hard") { mode = id; startGame(); }
+  else if (id === "again") startGame();
+  else if (id === "pause") pauseGame();
+  else if (id === "resume") paused = false;
+  else if (id === "menu") confirmReturnToMenu();
+}
+
+function pauseGame() {
+  paused = true; keys.clear(); running = false; stick = null;
+}
+
+// Pressionar / soltar uma direção (teclado e botões de toque usam o mesmo código)
+function holdKey(k, repeat) {
+  if (screen !== "playing" || gameOver || paused) return;
+  if (!repeat) {   // ignora o auto-repeat de segurar a tecla
+    const now = performance.now();
+    if (now - (lastPress[k] ?? -1e9) < DOUBLE_TAP_MS) running = true;   // toque duplo: corre
+    else if (keys.size === 0) running = false;                         // toque simples sem outra tecla: devagar
+    lastPress[k] = now;
+  }
+  keys.add(k);
+}
+function releaseKey(k) {
+  keys.delete(k);
+  if (keys.size === 0) running = false;   // só para de correr sem nenhuma tecla pressionada
+}
+
+// CONTROLES DE TOQUE (esquerda: cima/baixo | direita: esquerda/direita)
+const touchControls = document.getElementById("touchControls");
+let touchShown = false;
+
+touchControls.querySelectorAll(".ctrl-btn").forEach(btn => {
+  const k = btn.dataset.key;
+  const down = e => {
+    e.preventDefault();
+    initAudio();
+    btn.setPointerCapture(e.pointerId);
+    btn.classList.add("active");
+    holdKey(k, false);
+  };
+  const up = () => { btn.classList.remove("active"); releaseKey(k); };
+  btn.addEventListener("pointerdown", down);
+  btn.addEventListener("pointerup", up);
+  btn.addEventListener("pointercancel", up);
+  btn.addEventListener("lostpointercapture", up);
+  btn.addEventListener("contextmenu", e => e.preventDefault());
+});
+
+// Mostra os botões só em celular/tela estreita e só durante a partida
+function updateTouchControls() {
+  const isCellphone = /Android.*Mobile|iPhone|iPod|Windows Phone|Mobile/i.test(navigator.userAgent) &&
+                      matchMedia("(pointer: coarse)").matches;
+  const show = screen === "playing" && !gameOver && !paused && isCellphone && controlMode === "arrows";
+  if (show === touchShown) return;
+  touchShown = show;
+  touchControls.classList.toggle("controls-on", show);
+  if (!show) touchControls.querySelectorAll(".ctrl-btn").forEach(b => b.classList.remove("active"));
+}
+
+// ENTRADA: TECLADO
+document.addEventListener("keydown", e => {
+  initAudio();
+  const k = e.key.toLowerCase();
+  const confirm = k === "enter" || k === " ";
+
+  // Pausar / continuar com P ou Esc (Enter/Espaço também continuam)
+  if (screen === "playing" && !gameOver) {
+    if (!paused && (k === "p" || k === "escape")) { pauseGame(); e.preventDefault(); return; }
+    if (paused && (k === "p" || k === "escape" || confirm)) { paused = false; e.preventDefault(); return; }
+  }
+
+  if ((screen === "rewards" || screen === "modes" || screen === "difficulty" || screen === "hall" || screen === "settings") && k === "escape") { screen = "menu"; return; }
+  if (screen === "menu" && confirm) { screen = "modes"; e.preventDefault(); return; }
+  if (screen === "modes" && (k === "1" || k === "2")) { press(k === "1" ? "classic" : "boss"); return; }
+  if (screen === "difficulty" && (k === "1" || k === "2")) { press(k === "1" ? "easy" : "hard"); return; }
+  if (screen === "playing" && gameOver && confirm) { startGame(); e.preventDefault(); return; }
+
+  if (screen === "playing" && !gameOver && !paused &&
+      ["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"].includes(k)) {
+    e.preventDefault();
+    holdKey(k, e.repeat);
+  }
+});
+document.addEventListener("keyup", e => releaseKey(e.key.toLowerCase()));
+window.addEventListener("blur", () => { keys.clear(); running = false; });
+
+// ENTRADA: TOQUE / CLIQUE
+canvas.addEventListener("pointerdown", e => {
+  initAudio();
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+
+  const b = getButtons().find(b => x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h);
+  if (b) { press(b.id); return; }
+
+  if (screen === "playing" && !gameOver && !paused && e.pointerType !== "mouse" && controlMode === "analog") {
+    // O analógico fica fixo na parte inferior central da tela.
+    const ox = W() / 2, oy = H() - Math.max(82, H() * 0.14);
+    if (Math.hypot(x - ox, y - oy) > STICK_MAX * 2.2) return;
+    canvas.setPointerCapture(e.pointerId);
+    stick = { id: e.pointerId, ox, oy, x, y };
+  } else if (screen === "playing" && !gameOver && !paused && e.pointerType !== "mouse" && controlMode === "arrows") {
+    // Mantém o controle por arrasto disponível em dispositivos com ponteiro de toque.
+    canvas.setPointerCapture(e.pointerId);
+    stick = { id: e.pointerId, ox: x, oy: y, x, y };
+  }
+});
+canvas.addEventListener("pointermove", e => {
+  if (!stick || e.pointerId !== stick.id) return;
+  const r = canvas.getBoundingClientRect();
+  stick.x = e.clientX - r.left; stick.y = e.clientY - r.top;
+});
+const endStick = e => { if (stick && e.pointerId === stick.id) stick = null; };
+canvas.addEventListener("pointerup", endStick);
+canvas.addEventListener("pointercancel", endStick);
+
+// FEEDBACK
+function hit(good, x, y, pts = 1) {
+  score = good ? score + pts : Math.max(0, score - pts);
+  floats.push({ x, y, text: good ? "+" + pts : "-" + pts, color: good ? "#4dff88" : "#ff5a5a", life: 0.8 });
+  flash = 0.2; flashColor = good ? "#4dff88" : "#ff5a5a";
+  beep(good ? 880 : 180, good ? 0.08 : 0.15);
+}
+
+// Lista de áreas a evitar ao sortear itens (não nascem sobre brancos; encostar pode)
+const proxyZone = o => ({ x: o.x, y: o.y, size: o.size, gap: 0, fixed: true });
+
+// Zonas dos power-ups (gap 0: brancos não nascem em cima, mas podem ficar ao lado)
+function powerupZones() { return powerups.map(proxyZone); }
+
+function freeAvoid(skip) {
+  return [
+    { x: player.x, y: player.y, size: player.size, gap: 20, fixed: true },
+    ...(screen === "playing" && mode !== "boss" ? [pauseButtonZone()] : []),
+    ...obstacles.map(proxyZone), ...powerupZones(), proxyZone(item),
+    ...(fake && fake !== skip ? [proxyZone(fake)] : [])
+  ];
+}
+function placeItem(o) {
+  const p = safePosition(o.size, freeAvoid(o), 0);
+  o.x = p.x; o.y = p.y;
+}
+
+// Mímico: nasce perto do bloco verdadeiro (40 a 90 px de distância entre os centros)
+function placeNear(o, target) {
+  const avoid = freeAvoid(o);
+  for (let i = 0; i < 200; i++) {
+    const ang = Math.random() * Math.PI * 2, d = 40 + Math.random() * 50;
+    const box = { x: target.x + Math.cos(ang) * d, y: target.y + Math.sin(ang) * d, size: o.size };
+    if (box.x < 0 || box.y < 0 || box.x + o.size > W() || box.y + o.size > H()) continue;
+    if (!avoid.some(a => overlap(box, a, a.gap))) { o.x = box.x; o.y = box.y; return; }
+  }
+  placeItem(o);   // sem espaço perto: sorteia em qualquer lugar livre
+}
+
+// MODO FÁCIL: power-ups
+function updatePowerups(dt) {
+  magnetTime = Math.max(0, magnetTime - dt);
+  shield = Math.max(0, shield - dt);
+  powerups.forEach(p => p.life -= dt);
+  powerups = powerups.filter(p => p.life > 0);
+
+  puTimer -= dt;
+  if (puTimer <= 0) {
+    puTimer = 8 + Math.random() * 4;
+    if (powerups.length < 2) {
+      const p = { type: Math.random() < 0.5 ? "magnet" : "shield", size: 20, life: POWERUP_LIFE, x: 0, y: 0 };
+      placeItem(p); powerups.push(p);
+    }
+  }
+
+  powerups = powerups.filter(p => {
+    if (!overlap(player, p)) return true;
+    if (p.type === "magnet") { magnetTime = MAGNET_TIME; floats.push({ x: p.x, y: p.y, text: "ÍMÃ!", color: "#00ACFF", life: 0.8 }); }
+    else { shield = SHIELD_TIME; floats.push({ x: p.x, y: p.y, text: "INVENCÍVEL!", color: "#4dff88", life: 0.8 }); }
+    beep(660, 0.12);
+    return false;
+  });
+}
+
+// MODO DIFÍCIL: debuffs
+const DEBUFFS = { invert: "TECLAS INVERSAS", slow: "LENTIDÃO (sem correr)", mimic: "BLOCOS MÍMICOS" };
+
+function startDebuff(name) {
+  debuff = name; debuffTime = DEBUFF_TIME;
+  floats.push({ x: W() / 2 - 110, y: H() / 2 - 40, text: "DEBUFF: " + DEBUFFS[name], color: "#ff5a5a", life: 0.8 });
+  beep(140, 0.3);
+  if (name === "mimic") { fake = { x: 0, y: 0, size: 20 }; placeNear(fake, item); }
+}
+function endDebuff() { debuff = null; debuffTime = 0; fake = null; }
+
+function updateDebuffs(dt) {
+  if (debuff) { debuffTime -= dt; if (debuffTime <= 0) endDebuff(); }
+  if (elapsed >= nextDebuffAt) {
+    nextDebuffAt += DEBUFF_EVERY;
+    const names = Object.keys(DEBUFFS);
+    startDebuff(names[Math.floor(Math.random() * names.length)]);
+  }
+}
+
+// Parede cyberpunk do KNIGHT: o chefe fica apoiado na borda superior.
+const KNIGHT_WALL_H = 22;
+function knightWallRect() {
+  if (mode !== "boss" || bossIdx !== 2 || !boss || bossStage === "between" || bossStage === "dying") return null;
+  return { x: 0, y: Math.min(H() - KNIGHT_WALL_H - 8, boss.y + boss.size), w: W(), h: KNIGHT_WALL_H };
+}
+function resolveKnightWall(oldY) {
+  const wall = knightWallRect();
+  if (!wall) return;
+  if (player.x < wall.x + wall.w && player.x + player.size > wall.x &&
+      player.y < wall.y + wall.h && player.y + player.size > wall.y) {
+    // Impede atravessar a parede, mantendo o jogador no lado de onde veio.
+    if (oldY + player.size <= wall.y + 2) player.y = wall.y - player.size;
+    else if (oldY >= wall.y + wall.h - 2) player.y = wall.y + wall.h;
+    else player.y = oldY < wall.y ? wall.y - player.size : wall.y + wall.h;
+  }
+}
+
+// Movimento do jogador (teclado, botões de toque e joystick)
+function movePlayer(dt) {
+  // Stamina: correr gasta, descansar recupera; zerada, só volta a correr ao recuperar um pouco
+  if (exhausted) running = false;
+  const stickMoving = !!(stick && Math.hypot(stick.x - stick.ox, stick.y - stick.oy) > 8);
+  const movingInput = keys.size > 0 || stickMoving;
+  if (running && movingInput) { stamina = Math.max(0, stamina - STAMINA_DRAIN * dt); staminaDelay = 0.6; }
+  else { staminaDelay -= dt; if (staminaDelay <= 0) stamina = Math.min(STAMINA_MAX, stamina + STAMINA_REGEN * dt); }
+  if (stamina <= 0) { exhausted = true; running = false; }
+  else if (exhausted && stamina >= STAMINA_RESUME) exhausted = false;
+
+  let dx = 0, dy = 0;
+  const dirs = {
+    a: [-1, 0], arrowleft: [-1, 0], d: [1, 0], arrowright: [1, 0],
+    w: [0, -1], arrowup: [0, -1], s: [0, 1], arrowdown: [0, 1]
+  };
+  keys.forEach(k => {
+    const f = running ? 1 : SLOW_FACTOR;
+    dx += dirs[k][0] * f; dy += dirs[k][1] * f;
+  });
+
+  if (controlMode === "analog" && screen === "playing" && !gameOver && !paused && !touchShown) {
+    const bx = W()/2, by = H() - Math.max(82, H()*0.14);
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(bx, by, STICK_MAX, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.beginPath(); ctx.arc(bx, by, 22, 0, Math.PI*2); ctx.fill();
+  }
+  if (stick) {
+    const vx = stick.x - stick.ox, vy = stick.y - stick.oy;
+    const len = Math.hypot(vx, vy);
+    if (len > 8) { dx += vx / Math.max(len, STICK_MAX); dy += vy / Math.max(len, STICK_MAX); }
+  }
+
+  if (debuff === "invert") { dx = -dx; dy = -dy; }   // teclas (e joystick) inversos
+
+  const mag = Math.hypot(dx, dy);
+  if (mag > 1) { dx /= mag; dy /= mag; }
+
+  const oldY = player.y;
+  player.x += dx * SPEED * dt;
+  player.y += dy * SPEED * dt;
+  clampEntity(player);
+  keepPlayerBelowBossHud();
+  resolveKnightWall(oldY);
+  lastMove.x = dx; lastMove.y = dy;
+}
+
+// ===== MODO BOSS =====
+const PLAYER_MAX_HP = 100;
+let playerHP = PLAYER_MAX_HP;
+let boss = null, drop = null, wave = null;
+let bossStage = "intro", stageT = 0, shake = 0, furyFlash = 0;
+let bossIdx = 0;                          // 0 = BULL, 1 = PEEP, 2 = KNIGHT
+const firstOpportunityShown = new Set();   // aviso aparece apenas na primeira oportunidade de cada boss
+let bolts = [], bands = [], horses = [], crate = null;   // PEEP (lasers, caixa) e KNIGHT (ondas, cavalos)
+let endTitle = "TEMPO ESGOTADO!", endSub = "", endColor = "yellow";
+const kb = { x: 0, y: 0 };         // empurrão da onda magnética
+const lastMove = { x: 0, y: 0 };   // última direção de movimento do jogador
+
+function bossSet(st) { boss.state = st; boss.t = 0; }
+
+function spawnBoss() {
+  const names = ["BULL", "PEEP", "KNIGHT"], i = bossIdx;
+  const size = i === 1 ? 70 : 80;
+  const homeY = (i === 0 || i === 1) ? H() / 2 - size / 2 : 110;
+  boss = { idx: i, name: names[i], size, x: W() / 2 - size / 2, y: -size, startY: i === 1 ? homeY : -size, homeY,
+           maxHp: 6, hp: 6, hpShown: 0, alpha: 0, state: i === 0 ? "aim" : "idle", t: 0, ang: Math.PI / 2, fury: false };
+  if (i === 1) boss.y = homeY;   // PEEP aparece aos poucos no centro do mapa
+}
+
+function clearHazards() { wave = null; drop = null; bolts = []; bands = []; horses = []; crate = null; }
+
+
+function endBossGame(title, sub, color) {
+  gameOver = true; endTitle = title; endSub = sub; endColor = color || "yellow";
+  shake = 0; furyFlash = 0;
+  keys.clear(); running = false; stick = null;
+  recordBest();
+}
+
+function damagePlayer(n) {
+  playerHP -= n; invuln = 1.2; fade = FADE_TIME;
+  floats.push({ x: player.x, y: player.y - 10, text: "-" + n, color: "#ff5a5a", life: 0.8 });
+  flash = 0.2; flashColor = "#ff5a5a"; shake = Math.max(shake, 0.25);
+  beep(150, 0.2);
+  if (playerHP <= 0) { playerHP = 0; beep(300, 0.4); endBossGame("VOCÊ FOI DERROTADO!", "O " + (boss ? boss.name : "boss") + " venceu desta vez..."); }
+}
+
+function bossLaugh() {
+  floats.push({ x: boss.x, y: boss.y - 12, text: "HA HA HA!", color: "#ff5a5a", life: 1.2 });
+  [0, 130, 260].forEach((d, i) => setTimeout(() => beep(220 - i * 40, 0.12), d));
+}
+
+function startFury() {
+  boss.fury = true; furyFlash = 1;
+  floats.push({ x: W() / 2 - 70, y: H() / 2 - 40, text: "MODO FÚRIA!", color: "#ff6a00", life: 1.2 });
+  beep(90, 0.5);
+}
+
+// Boss bate na parede: fica atordoado e larga o bloquinho branco
+function showFirstOpportunity(message, aura) {
+  if (!boss || firstOpportunityShown.has(boss.idx)) return;
+  firstOpportunityShown.add(boss.idx);
+  floats.push({ x: W() / 2, y: H() - 70, text: message, color: "#ffffff", life: 2.4, maxLife: 2.4, opacity: 0.5, centered: true });
+  if (aura && drop) drop.aura = true;
+}
+
+function stunBoss() {
+  bossSet("stun");
+  const cx = boss.x + boss.size / 2, cy = boss.y + boss.size / 2;
+  const dx = Math.max(0, Math.min(W() - 20, cx - Math.cos(boss.ang) * (boss.size / 2 + 30) - 10));
+  const dy = Math.max(0, Math.min(H() - 20, cy - Math.sin(boss.ang) * (boss.size / 2 + 30) - 10));
+  drop = { x: dx, y: dy, size: 20 };
+  showFirstOpportunity("AGORA É SUA CHANCE!", boss.idx !== 1);
+  if (boss.fury) { wave = { x: cx, y: cy, r: 10, hit: false }; shake = 0.5; beep(90, 0.3); }   // tremor + onda magnética
+  else { shake = 0.15; beep(120, 0.15); }
+}
+
+function collectDrop() {
+  hit(true, drop.x, drop.y, 2);   // +2 pontos
+  drop = null;
+  boss.hp -= 1;
+  if (boss.hp <= 0) {
+    score += 8;
+    floats.push({ x: boss.x, y: boss.y - 12, text: "+8", color: "#4dff88", life: 1.2 });
+    boss.hp = 0; boss.hpShown = 0; bossSet("dead"); bossStage = "dying"; stageT = 0; clearHazards();
+  } else if (!boss.fury && boss.hp <= boss.maxHp / 2) startFury();
+}
+
+function updateBossFight(dt) {
+  const b = boss, f = b.fury;
+  b.hpShown += (b.hp - b.hpShown) * Math.min(1, dt * 8);
+  b.t += dt;
+  const bcx = b.x + b.size / 2, bcy = b.y + b.size / 2;
+  const pcx = player.x + player.size / 2, pcy = player.y + player.size / 2;
+
+  if (b.state === "aim") {                       // trava a mira no jogador
+    b.ang = Math.atan2(pcy - bcy, pcx - bcx);
+    if (b.t >= (f ? 0.5 : 1.1)) bossSet("windup");
+  } else if (b.state === "windup") {             // pisca em vermelho (mira travada)
+    if (b.t >= (f ? 0.35 : 0.7)) bossSet("dash");
+  } else if (b.state === "dash") {               // arrancada
+    const sp = f ? 1050 : 700;
+    b.x += Math.cos(b.ang) * sp * dt; b.y += Math.sin(b.ang) * sp * dt;
+    // A barreira invisível da HUD também bloqueia o BULL.
+    const hudBarrierY = BOSS_HUD_SAFE_Y;
+    if (b.y < hudBarrierY) {
+      b.y = hudBarrierY;
+      stunBoss();
+    }
+    if (b.state !== "stun" && invuln <= 0 && overlap(player, b)) {
+      damagePlayer(f ? 30 : 15);
+      if (!gameOver) { bossLaugh(); bossSet("recover"); }
+    } else if (b.x < 0 || b.y < 0 || b.x + b.size > W() || b.y + b.size > H()) {
+      b.x = Math.max(0, Math.min(b.x, W() - b.size));
+      b.y = Math.max(0, Math.min(b.y, H() - b.size));
+      stunBoss();
+    }
+  } else if (b.state === "recover") {
+    if (b.t >= (f ? 0.4 : 1.0)) bossSet("aim");
+  } else if (b.state === "stun") {
+    if (b.t >= (f ? 2 : 4)) { drop = null; bossSet("aim"); }   // na fúria o atordoamento dura metade
+  }
+}
+
+// ----- PEEP -----
+function spawnCrate() {
+  const size = 36, top = 110;   // a faixa do topo (vida, stamina, nome e barra do boss) fica sempre livre
+  const avoid = [
+    { x: boss.x, y: boss.y, size: boss.size, gap: 50, fixed: true },
+    { x: player.x, y: player.y, size: player.size, gap: 80, fixed: true }
+  ];
+  const rand = () => ({ x: Math.random() * Math.max(1, W() - size), y: top + Math.random() * Math.max(1, H() - top - size) });
+  let p = null;
+  for (let i = 0; i < 200 && !p; i++) {
+    const c = rand();
+    if (!avoid.some(o => overlap({ x: c.x, y: c.y, size }, o, o.gap))) p = c;
+  }
+  if (!p) p = rand();
+  crate = { x: Math.floor(p.x), y: Math.floor(p.y), size };
+  showFirstOpportunity("Se algo acertasse essa caixa...", false);
+}
+
+function fireBolt(x, y, ang, f) {
+  const sp = f ? 650 : 430;
+  bolts.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, bounces: 0, fury: f });
+  beep(700, 0.05);
+}
+
+function updatePeepFight(dt) {
+  const b = boss, f = b.fury;
+  b.hpShown += (b.hp - b.hpShown) * Math.min(1, dt * 8);
+  b.t += dt;
+  const bcx = b.x + b.size / 2, bcy = b.y + b.size / 2;
+  const pcx = player.x + player.size / 2, pcy = player.y + player.size / 2;
+  if (b.state !== "spin") b.ang = Math.atan2(pcy - bcy, pcx - bcx);   // o olho segue o jogador
+
+  if (b.state === "idle") {
+    if (b.t >= 1.2) { bossSet("spin"); b.spinA = 0; b.dir = Math.random() < 0.5 ? 1 : -1; b.flipT = 0; }
+  } else if (b.state === "spin") {                    // 2 lasers giratórios
+    if (b.t > 0.9) {                                  // 0,9 s de aviso antes de ficarem ativos
+      b.spinA += b.dir * (f ? 1.35 : 0.85) * dt;
+      b.flipT += dt;
+      if (b.flipT >= (f ? 1.8 : 2.5)) {               // troca o sentido de giro
+        b.flipT = 0; b.dir *= -1;
+        floats.push({ x: bcx - 10, y: bcy - b.size, text: b.dir > 0 ? "↻" : "↺", color: "#ff2bd6", life: 0.8 });
+      }
+      if (invuln <= 0) {
+        for (const off of [0, Math.PI]) {
+          const dx = Math.cos(b.spinA + off), dy = Math.sin(b.spinA + off);
+          const rx = pcx - bcx, ry = pcy - bcy;
+          if (rx * dx + ry * dy > 0 && Math.abs(rx * dy - ry * dx) < player.size / 2 + 5) { damagePlayer(f ? 16 : 8); break; }
+        }
+      }
+    }
+    if (b.t >= (f ? 6 : 7)) bossSet("draw");
+  } else if (b.state === "draw") {                    // saca a arma laser
+    if (b.t >= 0.8) { bossSet("gun"); b.shots = 0; b.shotT = 0; if (!crate) spawnCrate(); }
+  } else if (b.state === "gun") {                     // 5 lasers em direção ao jogador (na fúria: mais rápidos e com ricochete)
+    const total = 5, gap = f ? 0.28 : 0.5;
+    b.shotT -= dt;
+    if (b.shots < total && b.shotT <= 0) { fireBolt(bcx, bcy, b.ang, f); b.shots++; b.shotT = gap; }
+    if (b.shots >= total && b.t > total * gap + 1.2) bossSet("rest");
+  } else if (b.state === "rest") {
+    if (b.t >= 1.0) bossSet("idle");
+  }
+}
+
+// ----- KNIGHT -----
+function pickGap() {
+  const gw = boss.fury ? 80 : 100;
+  return 40 + Math.random() * Math.max(1, W() - gw - 80);
+}
+
+function spawnHorse(dir, f) {
+  const wall = knightWallRect();
+  // Na fúria, os cavalos verticais descem a partir da parede do KNIGHT,
+  // sem ficarem escondidos atrás da faixa de estatísticas.
+  const verticalFuryFromWall = dir === "v" && f && !!wall;
+  const side = verticalFuryFromWall ? 1 : (Math.random() < 0.5 ? 1 : -1), max = dir === "h" ? W() : H();
+  const bossZone = boss ? { x: boss.x - 90, y: boss.y - 70, w: boss.size + 180, h: boss.size + 100 } : null;
+  // Sorteia uma faixa fora da região inacessível ocupada pelo KNIGHT e sua parede.
+  let lane = dir === "h" ? 60 + Math.random() * Math.max(1, H() - 120) : 40 + Math.random() * Math.max(1, W() - 80);
+  for (let i = 0; i < 30; i++) {
+    const candidate = dir === "h" ? 60 + Math.random() * Math.max(1, H() - 120) : 40 + Math.random() * Math.max(1, W() - 80);
+    const intersectsBoss = bossZone && (dir === "h"
+      ? candidate + 38 >= bossZone.y && candidate - 38 <= bossZone.y + bossZone.h
+      : candidate + 38 >= bossZone.x && candidate - 38 <= bossZone.x + bossZone.w);
+    const intersectsWall = wall && dir === "h" && candidate + 38 >= wall.y - 25 && candidate - 38 <= wall.y + wall.h + 25;
+    if (!intersectsBoss && !intersectsWall) { lane = candidate; break; }
+  }
+  const startPos = verticalFuryFromWall
+    ? wall.y + wall.h
+    : (side > 0 ? -80 : max + 80);
+  horses.push({ dir, side, lane,
+                pos: startPos, speed: f ? 1000 : 750, warn: f ? 1.2 : 1.0, t: 0, dmg: f ? 30 : 15, fury: f, hit: false });
+}
+
+function updateKnightFight(dt) {
+  const b = boss, f = b.fury;
+  b.hpShown += (b.hp - b.hpShown) * Math.min(1, dt * 8);
+  b.t += dt;
+  const bcx = b.x + b.size / 2;
+
+  if (b.state === "idle") {
+    if (b.t >= 1.2) { b.waveN = 0; b.gapX = pickGap(); bossSet("swing"); }
+  } else if (b.state === "swing") {                   // balança a espada e solta a onda de aura
+    if (b.t >= (f ? 0.45 : 0.75)) {
+      bands.push({ y: b.y + b.size, h: 24, gapX: b.gapX, gapW: f ? 80 : 100, speed: f ? 520 : 380, dmg: f ? 24 : 12, hit: false });
+      beep(200, 0.15); shake = Math.max(shake, 0.12);
+      b.waveN++;
+      bossSet(b.waveN >= 3 ? "afterWaves" : "swingRest");
+    }
+  } else if (b.state === "swingRest") {
+    if (b.t >= (f ? 0.8 : 1.3)) { b.gapX = pickGap(); bossSet("swing"); }
+  } else if (b.state === "afterWaves") {
+    if (b.t >= (f ? 1.2 : 1.8)) { bossSet("trumpet"); b.horseN = 0; b.spawnT = 0.8; beep(330, 0.4); }
+  } else if (b.state === "trumpet") {                 // cavalos cibernéticos (6 vezes)
+    b.spawnT -= dt;
+    if (b.horseN < 6 && b.spawnT <= 0) {
+      spawnHorse("h", f);
+      if (f) spawnHorse("v", f);                      // na fúria vêm na vertical ao mesmo tempo
+      b.horseN++; b.spawnT = f ? 0.65 : 1.0;
+    }
+    if (b.horseN >= 6 && horses.length === 0) {       // sem fôlego: larga o bloquinho branco
+      bossSet("tired");
+      drop = { x: bcx - 10, y: b.y + b.size + 25, size: 20, life: f ? 2.5 : 5 };
+      // KNIGHT usa o estado "tired" como atordoamento: mostra o mesmo aviso
+      // branco, centralizado na parte inferior e 50% transparente do BULL,
+      // além de revelar o bloco com aura branca apenas na primeira vez.
+      showFirstOpportunity("AGORA É SUA CHANCE!", true);
+    }
+  } else if (b.state === "tired") {
+    if (b.t >= (f ? 2.5 : 5)) { drop = null; bossSet("idle"); }   // na fúria o cansaço dura metade
+  }
+}
+
+// ----- Perigos compartilhados (lasers, ondas e cavalos) -----
+function updateHazards(dt) {
+  const pcx = player.x + player.size / 2, pcy = player.y + player.size / 2;
+
+  bolts = bolts.filter(bo => {
+    bo.x += bo.vx * dt; bo.y += bo.vy * dt;
+    if (crate && bo.x > crate.x && bo.x < crate.x + crate.size && bo.y > crate.y && bo.y < crate.y + crate.size) {
+      drop = { x: crate.x + 8, y: crate.y + 8, size: 20, life: 8, collectDelay: (boss && boss.idx === 1 && boss.fury) ? 1 : 0 };   // no modo fúria do PEEP, só pode pegar 1 s após a caixa quebrar
+      floats.push({ x: crate.x, y: crate.y - 10, text: "CAIXA QUEBROU!", color: "#ffb703", life: 0.8 });
+      crate = null; beep(300, 0.12);
+      return false;
+    }
+    if (invuln <= 0 && Math.hypot(bo.x - pcx, bo.y - pcy) < player.size / 2 + 4) { damagePlayer(bo.fury ? 20 : 10); return false; }
+    if (bo.x < 0 || bo.x > W() || bo.y < 0 || bo.y > H()) {
+      if (bo.fury && bo.bounces < 2) {                // na fúria ricocheteia até 2 vezes
+        bo.bounces++;
+        if (bo.x < 0 || bo.x > W()) { bo.vx = -bo.vx; bo.x = Math.max(0, Math.min(W(), bo.x)); }
+        if (bo.y < 0 || bo.y > H()) { bo.vy = -bo.vy; bo.y = Math.max(0, Math.min(H(), bo.y)); }
+        return true;
+      }
+      return false;
+    }
+    return true;
+  });
+
+  bands.forEach(bd => {
+    bd.y += bd.speed * dt;
+    if (!bd.hit && invuln <= 0 && player.y < bd.y + bd.h && player.y + player.size > bd.y &&
+        (player.x < bd.gapX || player.x + player.size > bd.gapX + bd.gapW)) { bd.hit = true; damagePlayer(bd.dmg); }
+  });
+  bands = bands.filter(bd => bd.y < H() + 10);
+
+  horses.forEach(h => {
+    h.t += dt;
+    if (h.t < h.warn) return;
+    h.pos += h.side * h.speed * dt;
+    const collisionScale = h.fury ? 1.5 : 1.25; // aumento em relação à área atual: +25% normal, +50% fúria
+    const crossSize = 76.5 * collisionScale;
+    const r = h.dir === "h" ? { x: h.pos - 90, y: h.lane - crossSize / 2, w: 180, h: crossSize } : { x: h.lane - crossSize / 2, y: h.pos - 90, w: crossSize, h: 180 };
+    if (!h.hit && invuln <= 0 && player.x < r.x + r.w && player.x + player.size > r.x &&
+        player.y < r.y + r.h && player.y + player.size > r.y) { h.hit = true; damagePlayer(h.dmg); }
+  });
+  horses = horses.filter(h => h.side > 0 ? h.pos < (h.dir === "h" ? W() : H()) + 100 : h.pos > -100);
+
+  if (drop && drop.collectDelay > 0) drop.collectDelay = Math.max(0, drop.collectDelay - dt);
+  if (drop && drop.life !== undefined) { drop.life -= dt; if (drop.life <= 0) drop = null; }
+}
+
+// ===== VISUAL CYBERPUNK DOS BOSSES =====
+const NEON = { cyan: "#00e5ff", magenta: "#ff2bd6", yellow: "#ffe600", red: "#ff2a4d", orange: "#ff6a00", dark: "#12081f" };
+function neon(color, blur) { ctx.shadowColor = color; ctx.shadowBlur = blur; }
+function noNeon() { ctx.shadowBlur = 0; }
+
+// Corpo: aberração cromática, base escura, circuitos, scanlines e contorno neon
+function cyberBody(x, y, w, h, base, edge, circuit) {
+  ctx.fillStyle = "rgba(255,43,214,0.45)"; ctx.fillRect(x - 3, y, w, h);
+  ctx.fillStyle = "rgba(0,229,255,0.45)"; ctx.fillRect(x + 3, y, w, h);
+  ctx.fillStyle = base; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = circuit; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(x + 6, y + h * 0.3); ctx.lineTo(x + w * 0.35, y + h * 0.3); ctx.lineTo(x + w * 0.45, y + h * 0.45); ctx.lineTo(x + w - 8, y + h * 0.45);
+  ctx.moveTo(x + 8, y + h * 0.78); ctx.lineTo(x + w * 0.5, y + h * 0.78); ctx.lineTo(x + w * 0.58, y + h * 0.64); ctx.lineTo(x + w - 6, y + h * 0.64);
+  ctx.stroke();
+  ctx.fillStyle = circuit; ctx.fillRect(x + w * 0.35 - 2, y + h * 0.3 - 2, 4, 4); ctx.fillRect(x + w * 0.5 - 2, y + h * 0.78 - 2, 4, 4);
+  ctx.fillStyle = "rgba(0,0,0,0.25)";
+  for (let yy = y + 2; yy < y + h; yy += 4) ctx.fillRect(x, yy, w, 1);
+  neon(edge, 14); ctx.strokeStyle = edge; ctx.lineWidth = 3; ctx.strokeRect(x, y, w, h); noNeon();
+}
+
+function drawKnightWall() {
+  const wall = knightWallRect();
+  if (!wall) return;
+  const { x, y, w, h } = wall;
+  ctx.fillStyle = "#111629"; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#25233d"; ctx.fillRect(x, y + 3, w, h - 6);
+  ctx.fillStyle = "rgba(0,229,255,0.18)";
+  for (let xx = 0; xx < w; xx += 48) ctx.fillRect(xx + 4, y + 4, 24, h - 8);
+  ctx.strokeStyle = NEON.magenta; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let xx = 0; xx < w; xx += 96) {
+    ctx.moveTo(xx, y + h - 3); ctx.lineTo(xx + 16, y + h - 3);
+    ctx.lineTo(xx + 27, y + 5); ctx.lineTo(xx + 48, y + 5);
+  }
+  ctx.stroke();
+  ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,230,0,0.9)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, y + h); ctx.lineTo(w, y + h); ctx.stroke();
+  for (let xx = 12; xx < w; xx += 64) {
+    ctx.fillStyle = xx % 128 === 12 ? NEON.cyan : NEON.magenta;
+    ctx.fillRect(xx, y + 7, 4, 4);
+  }
+  neon(NEON.cyan, 10); ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 1;
+  ctx.strokeRect(0, y, w, h); noNeon();
+}
+
+function drawHazards() {
+  if (crate) {                                         // caixa de metal quebrada, com rachaduras neon
+    const x = crate.x, y = crate.y, s = crate.size;
+    ctx.fillStyle = "#23233a"; ctx.fillRect(x, y, s, s);
+    ctx.fillStyle = "rgba(0,0,0,0.3)"; for (let yy = y + 3; yy < y + s; yy += 4) ctx.fillRect(x, yy, s, 1);
+    neon(NEON.yellow, 10); ctx.strokeStyle = NEON.yellow; ctx.lineWidth = 3; ctx.strokeRect(x, y, s, s); noNeon();
+    ctx.fillStyle = NEON.cyan;
+    [[3, 3], [s - 7, 3], [3, s - 7], [s - 7, s - 7]].forEach(([a, b]) => ctx.fillRect(x + a, y + b, 4, 4));
+    neon(NEON.magenta, 8); ctx.strokeStyle = NEON.magenta; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x + 18, y); ctx.lineTo(x + 13, y + 10); ctx.lineTo(x + 22, y + 18); ctx.lineTo(x + 15, y + 28); ctx.lineTo(x + 19, y + s); ctx.stroke(); noNeon();
+    ctx.fillStyle = "#140032";
+    ctx.beginPath(); ctx.moveTo(x + s, y); ctx.lineTo(x + s, y + 12); ctx.lineTo(x + s - 11, y); ctx.fill();
+  }
+  horses.forEach(h => {
+    if (h.t < h.warn) {                                // aviso vermelho com a mesma largura da colisão
+      const warningSize = 76.5 * (h.fury ? 1.5 : 1.25);
+      ctx.fillStyle = "rgba(255,42,77," + (0.12 + 0.18 * (Math.floor(h.t * 10) % 2)) + ")";
+      ctx.strokeStyle = "rgba(255,42,77,0.8)"; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+      if (h.dir === "h") { ctx.fillRect(0, h.lane - warningSize / 2, W(), warningSize); ctx.strokeRect(0, h.lane - warningSize / 2, W(), warningSize); }
+      else {
+        // No modo fúria, a faixa vertical começa na base da parede do KNIGHT,
+        // nunca na área superior reservada às estatísticas.
+        const wall = h.fury ? knightWallRect() : null;
+        const warningTop = wall ? wall.y + wall.h : 0;
+        const warningHeight = Math.max(0, H() - warningTop);
+        ctx.fillRect(h.lane - warningSize / 2, warningTop, warningSize, warningHeight);
+        ctx.strokeRect(h.lane - warningSize / 2, warningTop, warningSize, warningHeight);
+      }
+      ctx.setLineDash([]);
+      return;
+    }
+    // Aumenta a dimensão visual transversal do cavalo até corresponder à
+    // espessura da sua área de colisão, para o jogador perceber melhor o perigo.
+    const visualCollisionSize = 76.5 * (h.fury ? 1.5 : 1.25);
+    // Ajuste independente dos eixos: o cavalo ocupa exatamente a caixa de
+    // colisão (180 px no sentido do movimento e visualCollisionSize no eixo transversal).
+    // Os desenhos-base medem aprox. 130x44 px na horizontal; na vertical, os eixos invertem.
+    const scaleAlong = 180 / 130;
+    const scaleAcross = visualCollisionSize / 44;
+    ctx.save();
+    ctx.translate(h.pos, h.lane);
+    ctx.scale(h.dir === "h" ? scaleAlong : scaleAcross,
+              h.dir === "h" ? scaleAcross : scaleAlong);
+    ctx.translate(-h.pos, -h.lane);
+    const tl = 130;                                    // rastro de luz
+    ctx.fillStyle = "rgba(0,229,255,0.22)";
+    if (h.dir === "h") ctx.fillRect(h.side > 0 ? h.pos - 40 - tl : h.pos + 40, h.lane - 12, tl, 24);
+    else ctx.fillRect(h.lane - 12, h.side > 0 ? h.pos - 40 - tl : h.pos + 40, 24, tl);
+    neon(NEON.cyan, 12); ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 2; ctx.fillStyle = "#08202e";
+    if (h.dir === "h") {
+      ctx.fillRect(h.pos - 40, h.lane - 14, 70, 28); ctx.strokeRect(h.pos - 40, h.lane - 14, 70, 28);
+      [-34, -14, 6, 22].forEach(d => ctx.strokeRect(h.pos + d, h.lane + 14, 8, 10));
+      neon(NEON.magenta, 12); ctx.fillStyle = NEON.magenta; ctx.fillRect(h.pos + (h.side > 0 ? 30 : -60), h.lane - 20, 30, 22);
+      ctx.fillStyle = "#fff"; ctx.fillRect(h.pos + (h.side > 0 ? 44 : -50), h.lane - 14, 6, 4);
+    } else {
+      ctx.fillRect(h.lane - 14, h.pos - 40, 28, 70); ctx.strokeRect(h.lane - 14, h.pos - 40, 28, 70);
+      [-34, -14, 6, 22].forEach(d => ctx.strokeRect(h.lane + 14, h.pos + d, 10, 8));
+      neon(NEON.magenta, 12); ctx.fillStyle = NEON.magenta; ctx.fillRect(h.lane - 20, h.pos + (h.side > 0 ? 30 : -60), 22, 30);
+      ctx.fillStyle = "#fff"; ctx.fillRect(h.lane - 14, h.pos + (h.side > 0 ? 44 : -50), 4, 6);
+    }
+    noNeon();
+    ctx.restore();
+  });
+  bands.forEach(bd => {                                // ondas de aura do KNIGHT: parede de energia
+    [[0, bd.gapX], [bd.gapX + bd.gapW, W()]].forEach(([x0, x1]) => {
+      const w = x1 - x0;
+      if (w <= 0) return;
+      ctx.fillStyle = "rgba(0,229,255,0.35)"; ctx.fillRect(x0, bd.y, w, bd.h);
+      ctx.fillStyle = "rgba(255,43,214,0.35)"; for (let xx = x0; xx < x1; xx += 24) ctx.fillRect(xx, bd.y, 8, bd.h);
+      neon(NEON.cyan, 14); ctx.fillStyle = "#e8ffff"; ctx.fillRect(x0, bd.y + bd.h - 3, w, 3); noNeon();
     });
-}
-
-
-$('open-hall').onclick=function(){show('hall')};
-
-$('hall-test').hidden=!(RANK_TEST&&!FB_ON);$('hall-test').onclick=function(){renderHall(true)};
-
-
-
-/* Registro da pontuação no fim da partida (só envia se for maior que a melhor já enviada nesta dificuldade). */
-
-function rankSend(df,pts){
-
-  if(!user)return Promise.reject(new Error('Nenhum jogador está identificado.'));
-  if(['facil','normal','dificil'].indexOf(df)<0)return Promise.reject(new Error('Dificuldade inválida.'));
-  if(!Number.isFinite(pts)||pts<0)return Promise.reject(new Error('Pontuação inválida.'));
-  if(pts===0)return Promise.resolve(false);
-
-  /*
-    Não usa apg-mine como bloqueio: esse cache é local e pode ficar diferente
-    do servidor. O armazenamento decide se a pontuação realmente é um recorde.
-  */
-  return RANK.score(nkey(user),df,pts).then(function(saved){
-    var mine=lsGet('apg-mine',{facil:0,normal:0,dificil:0});
-    mine[df]=Math.max(+mine[df]||0,pts);
-    lsSet('apg-mine',mine);
-    return saved;
   });
-
-}
-
-
-
-/* =========================================================
-
-   VOZES DO APARELHO (síntese de fala)
-
-   Cada celular tem vozes diferentes, por isso o som pode variar de um aparelho para outro.
-
-   ========================================================= */
-
-var toonVoice=null,toonMale=false,femVoice=null,maleVoice=null;
-
-
-
-/* Procura vozes em português do Brasil: uma base, uma masculina e uma feminina. */
-
-function pickVoice(){
-
-  if(!window.speechSynthesis)return;
-
-  var vs=speechSynthesis.getVoices();
-
-  var pt=vs.filter(function(v){return /^pt/i.test(v.lang)});
-
-    var br=pt.filter(function(v){return /pt[-_]BR/i.test(v.lang)});
-
-    voice=(br.length?br:pt).find(function(v){return /natural|neural|online|google|luciana|francisca|vit[oó]ria/i.test(v.name)})||br[0]||pt[0]||null;
-
-  var male=(br.length?br:pt).find(function(v){return /daniel|felipe|ricardo|ant[oô]nio|donato|jorge|male|masculin/i.test(v.name)});
-
-  toonMale=!!male;toonVoice=male||voice;
-
-  femVoice=(br.length?br:pt).find(function(v){return /luciana|francisca|vit[oó]ria|female|feminin/i.test(v.name)})||null;maleVoice=male||null;
-
-}
-
-if(window.speechSynthesis){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}   /* a lista de vozes pode carregar depois */
-
-
-
-var hardMode=false;   /* true quando a dificuldade é Difícil */
-
-
-
-/* Fontes aleatórias usadas no texto do Difícil (quando o jogador está com a fonte Padrão). */
-
-var FONTS=["'Pacifico',cursive","'Special Elite','Courier New',monospace","'Rye',serif","'Creepster',cursive","'Bungee',sans-serif","'Press Start 2P',monospace","'Permanent Marker',cursive","'Lobster',cursive","'Caveat',cursive","'Orbitron',sans-serif","'Fredericka the Great',serif","'Chewy',cursive","'Bowlby One','Arial Black',sans-serif","'Times New Roman',serif"];
-
-
-
-/* Limpa o texto do comando. */
-
-function clearCmd(){cmdEl.classList.remove('rnd');cmdEl.textContent=''}
-
-
-
-/* CHIADO (ruído de fundo do Difícil): só toca enquanto a voz fala.
-
-   hissStart liga um ruído branco filtrado; hissStop desliga com um fade curto. */
-
-var hiss=null,hissBuf=null;
-
-function hissStop(owner){
-
-  if(!hiss||(owner&&hiss.owner!==owner))return;
-
-  var h=hiss;hiss=null;clearTimeout(h.to);
-
-  try{var t=ctx.currentTime;h.g.gain.cancelScheduledValues(t);h.g.gain.setValueAtTime(h.g.gain.value,t);h.g.gain.linearRampToValueAtTime(0,t+.04);h.src.stop(t+.06)}catch(e){}
-
-}
-
-function hissStart(owner,level){
-
-  if(!ctx)return;
-
-  hissStop();
-
-  if(!hissBuf){   /* cria uma vez 2 segundos de ruído aleatório e reaproveita */
-
-    var n=ctx.sampleRate*2,d;hissBuf=ctx.createBuffer(1,n,ctx.sampleRate);d=hissBuf.getChannelData(0);
-
-    for(var i=0;i<n;i++)d[i]=Math.random()*2-1;
-
-  }
-
-  var src=ctx.createBufferSource();src.buffer=hissBuf;src.loop=true;
-
-  var hp=ctx.createBiquadFilter();hp.type='highpass';hp.frequency.value=900;     /* corta os graves */
-
-  var lp=ctx.createBiquadFilter();lp.type='lowpass';lp.frequency.value=7000;     /* corta os agudos extremos */
-
-  var g=ctx.createGain(),t=ctx.currentTime;
-
-  g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(level,t+.03);
-
-  src.connect(hp);hp.connect(lp);lp.connect(g);g.connect(ctx.destination);src.start(t);
-
-  /* trava de segurança: se a fala não avisar que terminou, o chiado desliga sozinho após 4s */
-
-  hiss={src:src,g:g,owner:owner,to:setTimeout(function(){hissStop(owner)},4000)};
-
-}
-
-
-
-/* TEXTO DO DIFÍCIL: cada letra vira um <span> com opacidade baixa, rotação, desfoque e TAMANHO aleatórios.
-
-   Tamanho: cada letra recebe um valor entre 0,55 e 1,7 vezes o tamanho normal, e o sorteio garante que
-
-   duas letras seguidas tenham tamanhos bem diferentes (diferença mínima de 0,3).
-
-   Fonte: com a fonte Padrão, cada letra usa uma fonte sorteada; com fonte da Loja, todas usam a escolhida.
-
-   Depois sorteia uma posição na tela que não colida com o brinquedo nem com o placar. */
-
-function hardText(t){
-
-  clearCmd();
-
-  var prev=1;   /* tamanho da letra anterior */
-
-  t.split('').forEach(function(ch){
-
-    var z;do{z=.55+Math.random()*1.15}while(Math.abs(z-prev)<.3);prev=z;   /* sorteia até ficar bem diferente da letra vizinha */
-
-    var sp=document.createElement('span');
-
-    sp.textContent=ch===' '?'\u00a0':ch;
-
-    sp.style.cssText='display:inline-block;font-family:'+(sel.font==='padrao'?FONTS[Math.floor(Math.random()*FONTS.length)]:pick('font').v)+';opacity:'+(.22+Math.random()*.28).toFixed(2)+';transform:rotate('+Math.round(Math.random()*24-12)+'deg);font-size:'+z.toFixed(2)+'em;filter:blur(.6px)';
-
-    cmdEl.appendChild(sp);
-
+  bolts.forEach(bo => {                                // lasers do PEEP: brilho + núcleo branco
+    const m = Math.hypot(bo.vx, bo.vy) || 1, col = bo.fury ? NEON.magenta : NEON.cyan;
+    ctx.beginPath(); ctx.moveTo(bo.x - bo.vx / m * 22, bo.y - bo.vy / m * 22); ctx.lineTo(bo.x, bo.y);
+    neon(col, 14); ctx.strokeStyle = col; ctx.lineWidth = 6; ctx.stroke(); noNeon();
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
   });
+}
 
-  cmdEl.classList.add('rnd');
-
-  cmdEl.style.left='0px';cmdEl.style.top='0px';
-
-  var w=cmdEl.offsetWidth,h=cmdEl.offsetHeight,m=10,g=18;   /* tamanho do texto, margem da tela (m) e folga (g) */
-
-  var tr=toy.getBoundingClientRect(),r1=scEl.getBoundingClientRect(),r2=scEl.nextElementSibling.getBoundingClientRect();
-
-  /* áreas proibidas: o brinquedo (com espaço extra para a alça) e o placar */
-
-  var boxes=[{l:tr.left-g,r:tr.right+g,t:tr.top-tr.height*.22-g,b:tr.bottom+g},{l:Math.min(r1.left,r2.left)-g,r:Math.max(r1.right,r2.right)+g,t:r1.top-g,b:r2.bottom+g}];
-
-  var x,y,ok=false;
-
-  for(var i=0;i<60&&!ok;i++){   /* tenta até 60 posições aleatórias */
-
-    x=m+Math.random()*Math.max(0,innerWidth-w-2*m);
-
-    y=m+Math.random()*Math.max(0,innerHeight-h-2*m);
-
-    ok=boxes.every(function(k){return x+w<=k.l||x>=k.r||y+h<=k.t||y>=k.b});
-
+function drawBull(b) {
+  const cx = b.x + b.size / 2, cy = b.y + b.size / 2;
+  const jx = b.state === "dead" ? (Math.random() - 0.5) * 10 : 0, jy = b.state === "dead" ? (Math.random() - 0.5) * 10 : 0;
+  const x = b.x + jx, y = b.y + jy, s = b.size;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, b.alpha));
+  if (b.state === "aim" || b.state === "windup") {     // linha de mira neon
+    neon(NEON.red, 10); ctx.strokeStyle = "rgba(255,42,77,0.7)"; ctx.lineWidth = 3; ctx.setLineDash([8, 8]);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(b.ang) * 170, cy + Math.sin(b.ang) * 170); ctx.stroke();
+    ctx.setLineDash([]); noNeon();
   }
+  const blink = b.state === "windup" && Math.floor(b.t * 12) % 2 === 0;
+  const edge = blink ? NEON.red : (b.fury ? NEON.orange : NEON.magenta);
+  cyberBody(x, y, s, s, blink ? "#5a0014" : (b.fury ? "#2b0a05" : "#1a0b2e"), edge, "rgba(0,229,255,0.55)");
 
-  if(!ok){x=Math.max(m,(innerWidth-w)/2);y=Math.max(m,innerHeight-h-m)}   /* se não achou, usa o centro embaixo */
+  neon(NEON.cyan, 16); ctx.fillStyle = "#b8f7ff";      // chifres de aço neon
+  ctx.beginPath(); ctx.moveTo(x, y + 12); ctx.lineTo(x - 16, y - 14); ctx.lineTo(x + 22, y); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x + s, y + 12); ctx.lineTo(x + s + 16, y - 14); ctx.lineTo(x + s - 22, y); ctx.fill();
+  noNeon();
 
-  cmdEl.style.left=Math.round(x)+'px';cmdEl.style.top=Math.round(y)+'px';
+  const lx = Math.cos(b.ang) * 4, ly = Math.sin(b.ang) * 4;   // olhos-visor seguem a mira
+  [-18, 18].forEach(d => {
+    neon(b.fury ? NEON.yellow : NEON.red, 14); ctx.fillStyle = b.fury ? NEON.yellow : NEON.red;
+    ctx.fillRect(cx + d - 8 + jx, cy - 14 + jy, 16, 9); noNeon();
+    ctx.fillStyle = "#fff"; ctx.fillRect(cx + d - 2 + lx + jx, cy - 12 + ly + jy, 4, 4);
+  });
+  ctx.fillStyle = "#0a0414"; ctx.fillRect(cx - 16 + jx, cy + 14 + jy, 32, 14);   // focinho com argola neon
+  neon(NEON.yellow, 10); ctx.strokeStyle = NEON.yellow; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx + jx, cy + 28 + jy, 6, 0, Math.PI); ctx.stroke(); noNeon();
 
+  if (b.state === "stun") {                            // estrelas neon sobre a cabeça
+    neon(NEON.yellow, 10); ctx.fillStyle = NEON.yellow; ctx.font = "bold 22px Arial"; ctx.textAlign = "center";
+    for (let i = 0; i < 3; i++) {
+      const a = performance.now() / 300 + i * 2.1;
+      ctx.fillText("★", cx + Math.cos(a) * 32, b.y - 14 + Math.sin(a) * 8);
+    }
+    noNeon(); ctx.textAlign = "left";
+  }
+  ctx.restore();
 }
 
-
-
-/* Versão "esticada" das palavras para a voz Desenho. */
-
-var TOON={'Aperta!':'Apeeeerta!','Puxa!':'Puuuuxa!','Gira!':'Giiiira!'};
-
-
-
-/* Efeito sonoro "boing" (oscilador com vibrato), tocado antes dos comandos da voz Desenho. */
-
-function boing(){
-
-  if(!ctx)return;
-
-  var o=ctx.createOscillator(),v=ctx.createOscillator(),vg=ctx.createGain(),g=ctx.createGain(),t=ctx.currentTime;
-
-  o.type='sine';o.frequency.setValueAtTime(200,t);o.frequency.exponentialRampToValueAtTime(1000,t+.2);
-
-  v.frequency.value=28;vg.gain.value=40;v.connect(vg);vg.connect(o.frequency);
-
-  g.gain.setValueAtTime(.2,t);g.gain.exponentialRampToValueAtTime(.001,t+.26);
-
-  o.connect(g);g.connect(ctx.destination);o.start(t);v.start(t);o.stop(t+.28);v.stop(t+.28);
-
+function drawPeep(b) {
+  const cx = b.x + b.size / 2, cy = b.y + b.size / 2, r = b.size / 2;
+  const j = b.state === "dead" ? (Math.random() - 0.5) * 10 : 0;
+  const col = b.fury ? NEON.orange : NEON.magenta;
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, b.alpha));
+  if (b.state === "spin") {                            // lasers giratórios neon
+    const L = Math.hypot(W(), H()), charge = b.t <= 0.9;
+    [0, Math.PI].forEach(off => {
+      const a = (b.spinA || 0) + off;
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * L, cy + Math.sin(a) * L);
+      if (charge) { ctx.strokeStyle = "rgba(255,43,214,0.5)"; ctx.lineWidth = 2; ctx.setLineDash([10, 10]); ctx.stroke(); ctx.setLineDash([]); }
+      else { neon(col, 18); ctx.strokeStyle = col; ctx.lineWidth = 10; ctx.stroke(); noNeon(); ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke(); }
+    });
+  }
+  ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 2; ctx.setLineDash([6, 8]); ctx.lineDashOffset = -performance.now() / 40;
+  ctx.beginPath(); ctx.arc(cx + j, cy + j, r + 9, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);   // anel orbital
+  ctx.fillStyle = NEON.dark; ctx.beginPath(); ctx.arc(cx + j, cy + j, r, 0, Math.PI * 2); ctx.fill();   // núcleo
+  neon(col, 16); ctx.strokeStyle = col; ctx.lineWidth = 4; ctx.stroke(); noNeon();
+  ctx.strokeStyle = "rgba(0,229,255,0.7)"; ctx.lineWidth = 2;                                            // arcos de circuito
+  [[0.2, 1.1], [2.0, 3.0], [3.8, 4.6]].forEach(([a0, a1]) => {
+    const o = performance.now() / 2000;
+    ctx.beginPath(); ctx.arc(cx + j, cy + j, r - 8, a0 + o, a1 + o); ctx.stroke();
+  });
+  neon(NEON.cyan, 14); ctx.fillStyle = "#e8ffff";                                                         // olho
+  ctx.beginPath(); ctx.arc(cx + j, cy + j, 21, 0, Math.PI * 2); ctx.fill(); noNeon();
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(cx + j + Math.cos(b.ang) * 9, cy + j + Math.sin(b.ang) * 9, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,0.2)"; for (let yy = cy - 21; yy < cy + 21; yy += 4) ctx.fillRect(cx - 21, yy, 42, 1);
+  if (b.state === "draw" || b.state === "gun") {       // arma laser
+    ctx.translate(cx, cy); ctx.rotate(b.ang);
+    ctx.fillStyle = "#1b1b2f"; ctx.fillRect(r - 4, -6, 36, 12);
+    neon(NEON.cyan, 10); ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 2; ctx.strokeRect(r - 4, -6, 36, 12);
+    ctx.fillStyle = "#fff"; ctx.fillRect(r + 30, -3, 6, 6); noNeon();
+  }
+  ctx.restore();
 }
 
+function drawKnight(b) {
+  const cx = b.x + b.size / 2, tired = b.state === "tired", dy = tired ? 8 : 0;
+  const jx = b.state === "dead" ? (Math.random() - 0.5) * 10 : 0, jy = b.state === "dead" ? (Math.random() - 0.5) * 10 : 0;
+  const x = b.x + jx, y = b.y + jy + dy, s = b.size;
+  const edge = tired ? "#4a6fa5" : (b.fury ? NEON.magenta : NEON.cyan);
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, Math.min(1, b.alpha));
+  if (b.state === "swing") {                           // marca neon da brecha por onde dá para passar
+    const gw = b.fury ? 60 : 100;
+    neon("#4dff88", 10); ctx.strokeStyle = "rgba(77,255,136," + (0.5 + 0.5 * Math.sin(performance.now() / 80)) + ")"; ctx.lineWidth = 4;
+    [b.gapX, b.gapX + gw].forEach(gx => { ctx.beginPath(); ctx.moveTo(gx, b.y + b.size); ctx.lineTo(gx, H()); ctx.stroke(); });
+    noNeon();
+  }
+  cyberBody(x, y, s, s - dy, tired ? "#0e1623" : (b.fury ? "#1d0a2b" : "#101a33"), edge, "rgba(255,43,214,0.5)");
+  const vis = b.fury ? NEON.yellow : NEON.magenta;     // viseira neon com varredura
+  neon(vis, 14); ctx.fillStyle = vis; ctx.fillRect(x + 14, y + 24, 52, 10); noNeon();
+  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x + 14 + (Math.floor(performance.now() / 300) % 3) * 18, y + 24, 6, 10);
+  neon(NEON.magenta, 12); ctx.fillStyle = NEON.magenta;   // crista
+  ctx.beginPath(); ctx.moveTo(cx - 8 + jx, b.y + jy); ctx.lineTo(cx + jx, b.y - 22 + jy); ctx.lineTo(cx + 8 + jx, b.y + jy); ctx.fill(); noNeon();
+  ctx.save();                                          // espada de energia
+  const wind = b.fury ? 0.45 : 0.75;
+  const ang = b.state === "swing" ? -2.2 + Math.min(1, b.t / wind) * 2.4 : -0.5;
+  ctx.translate(cx + 44 + jx, b.y + 34 + jy); ctx.rotate(ang);
+  neon(NEON.cyan, 16); ctx.fillStyle = NEON.cyan; ctx.fillRect(-5, -74, 10, 74); noNeon();
+  ctx.fillStyle = "#fff"; ctx.fillRect(-2, -72, 4, 70);
+  neon(NEON.yellow, 8); ctx.fillStyle = NEON.yellow; ctx.fillRect(-11, -4, 22, 6); noNeon();
+  ctx.restore();
+  if (b.state === "trumpet") {                         // trombeta neon
+    neon(NEON.yellow, 12); ctx.fillStyle = NEON.yellow; ctx.fillRect(cx - 6, b.y + b.size - 8, 40, 8);
+    ctx.beginPath(); ctx.moveTo(cx + 34, b.y + b.size - 4); ctx.lineTo(cx + 54, b.y + b.size - 18); ctx.lineTo(cx + 54, b.y + b.size + 10); ctx.fill(); noNeon();
+  }
+  if (tired) {                                         // suor
+    ctx.fillStyle = NEON.cyan;
+    for (let i = 0; i < 3; i++) {
+      const t = (performance.now() / 400 + i / 3) % 1;
+      ctx.beginPath(); ctx.arc(b.x + b.size + 8 + i * 6, b.y + 6 + t * 30, 3, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
 
+function updateBoss(dt) {
+  stageT += dt;
+  runTime += dt;   // tempo total da run (não conta enquanto pausado)
+  furyFlash = Math.max(0, furyFlash - dt * 1.2);
 
-/* Escolhe qual voz do aparelho usar para um estilo da Loja. */
+  if (bossStage === "intro") {                   // jogador sozinho no mapa
+    movePlayer(dt);
+    if (stageT >= 3) { bossStage = "cutscene"; stageT = 0; spawnBoss(); }
+    return;
+  }
+  if (bossStage === "cutscene") {                // boss entra, barra de vida enche
+    const p = Math.min(1, stageT / 3.5), e = 1 - Math.pow(1 - p, 3);
+    boss.y = boss.startY + (boss.homeY - boss.startY) * e;
+    boss.alpha = Math.min(1, p * 2); boss.hpShown = boss.maxHp * p;
 
-function styleVoice(st){return st.k==='fem'?(femVoice||voice):st.k==='male'?(maleVoice||voice):st.id==='desenho'?toonVoice:voice}
-
-
-
-/* FALA um texto com o estilo de voz equipado (ou o indicado em sid, usado no botão "Ouvir").
-
-   Em qualquer voz, na dificuldade Difícil (hard=true) o tom é mais grosso e há chiado de fundo. */
-
-function say(text,rate,hard,sid){
-
-  if(!window.speechSynthesis)return;
-
-  try{
-
-    speechSynthesis.cancel();   /* interrompe qualquer fala anterior */
-
-    var st=sid?SHOP.voice.items.find(function(x){return x.id===sid}):pick('voice');
-
-    var cartoon=!hard&&st.id==='desenho'&&TOON[text];
-
-    var u=new SpeechSynthesisUtterance(cartoon||text);
-
-    u.lang='pt-BR';u.volume=1;
-
-    var vv=styleVoice(st);if(vv)u.voice=vv;
-
-    if(hard){
-
-      u.pitch=Math.max(.35,Math.min(.62,st.pitch*.45+Math.random()*.06));   /* tom grave */
-
-      u.rate=Math.min(1.7,rate*(.95+Math.random()*.1)*(st.rate||1));
-
-      u.onstart=function(){hissStart(u,.07)};          /* liga o chiado quando a fala começa */
-
-      u.onend=u.onerror=function(){hissStop(u)};       /* desliga quando termina ou dá erro */
-
-    }else{
-
-      u.pitch=st.id==='desenho'?(toonMale?1.8+Math.random()*.2:1+Math.random()*.15):st.pitch;
-
-      u.rate=Math.min(2,rate*(st.id==='desenho'?1.08+Math.random()*.12:st.rate));
-
-      if(cartoon)boing();
-
+    // A entrada do boss pode ocupar a faixa inferior da arena. Se o jogador
+    // ficou dentro dessa estrutura durante a cutscene, empurra-o para baixo
+    // dela e também mantém a zona das estatísticas livre.
+    keepPlayerBelowBossHud();
+    // A barra cinematográfica inferior (parede preta com borda neon azul)
+    // é uma zona inacessível durante a entrada de QUALQUER boss. Se o jogador
+    // estiver nela ou ultrapassar sua borda, empurra-o para cima da linha.
+    const cinematicBottomTop = H() - 52; // topo da faixa preta/linha ciano inferior
+    if (player.y + player.size > cinematicBottomTop) {
+      player.y = Math.max(50, cinematicBottomTop - player.size);
     }
 
-    speechSynthesis.speak(u);
+    const bossLeft = boss.x, bossRight = boss.x + boss.size;
+    const playerOverBossX = player.x < bossRight && player.x + player.size > bossLeft;
+    const structureBottom = boss.y + boss.size + (boss.idx === 2 ? KNIGHT_WALL_H : 12);
+    if (playerOverBossX && player.y < structureBottom && player.y + player.size > boss.y) {
+      player.y = Math.min(cinematicBottomTop - player.size, structureBottom);
+    }
+    if (p >= 1) { bossStage = "fight"; stageT = 0; bossSet(boss.idx === 0 ? "aim" : "idle"); }
+    return;
+  }
 
-  }catch(e){}
+  movePlayer(dt);
+  const oldY = player.y;
+  player.x += kb.x * dt; player.y += kb.y * dt; clampEntity(player); keepPlayerBelowBossHud(); resolveKnightWall(oldY);
+  const damp = Math.max(0, 1 - 6 * dt); kb.x *= damp; kb.y *= damp;
 
+  if (bossStage === "between") {                 // pequena pausa antes da próxima cutscene
+    if (stageT >= 1.5) { bossStage = "cutscene"; stageT = 0; spawnBoss(); }
+    return;
+  }
+  if (bossStage === "dying") {
+    boss.alpha = Math.max(0, 1 - stageT / 2.5);
+    if (stageT >= 2.5) {
+      if (bossIdx < 2) {                           // próximo boss: BULL -> PEEP -> KNIGHT
+        bossIdx++; bossStage = "between"; stageT = 0; boss = null; clearHazards();
+        playerHP = Math.min(PLAYER_MAX_HP, playerHP + 30);
+        floats.push({ x: player.x, y: player.y - 12, text: "+30 VIDA", color: "#4dff88", life: 1.2 });
+      } else {
+        const ms = Math.round(runTime * 1000);
+        submitIf("bossBestMs", ms);                // recorde de velocidade (menor tempo)
+        endBossGame("VOCÊ SALVOU A CYBERÓPOLIS!", "Parabéns, herói! Tempo total: " + fmtRun(ms), "#4dff88");
+      }
+    }
+    return;
+  }
+
+  [updateBossFight, updatePeepFight, updateKnightFight][bossIdx](dt);
+  if (gameOver) return;
+  // Contato corporal com BULL e PEEP causa 15 de dano; a invulnerabilidade evita dano contínuo a cada frame.
+  if (boss && bossIdx < 2 && invuln <= 0 && overlap(player, boss)) {
+    damagePlayer(15);
+    if (gameOver) return;
+  }
+  updateHazards(dt);
+  if (gameOver) return;
+
+  if (wave) {                                    // onda magnética (modo fúria)
+    wave.r += 420 * dt;
+    const d = Math.hypot(player.x + player.size / 2 - wave.x, player.y + player.size / 2 - wave.y);
+    if (!wave.hit && invuln <= 0 && Math.abs(d - wave.r) < 24) {
+      wave.hit = true;
+      let px = -lastMove.x, py = -lastMove.y;    // empurra para o lado oposto ao que ia
+      if (Math.hypot(px, py) < 0.1) { px = player.x + player.size / 2 - wave.x; py = player.y + player.size / 2 - wave.y; }
+      const m = Math.hypot(px, py) || 1;
+      kb.x = px / m * 700; kb.y = py / m * 700;
+      damagePlayer(10);
+      if (gameOver) return;
+    }
+    if (wave && wave.r > 170) wave = null;
+  }
+
+  if (drop && (drop.collectDelay || 0) <= 0 && overlap(player, drop)) collectDrop();
 }
 
-
-
-/* =========================================================
-
-   MÚSICA DE FUNDO
-
-   ========================================================= */
-
-
-
-/* Remove o brilho de todas as peças. */
-
-function clearGlow(){Object.keys(TARGET).forEach(function(k){TARGET[k].classList.remove('glow')})}
-
-
-
-/* bgm = elemento <audio>; interacted = o jogador já tocou na página?; cur = tela atual.
-
-   Navegadores só liberam som depois de uma interação do usuário. */
-
-var bgm=$('bgm'),interacted=false,cur='home';
-
-
-
-/* Volume escolhido pelo jogador (0 a 1). No jogo por áudio, a música cai para 20% desse valor
-
-   (10% no padrão) para não atrapalhar a voz. Para mudar isso, altere GAME_FACTOR. */
-
-var GAME_FACTOR=0.2,userVol=0.5;
-
-try{var sv=localStorage.getItem('apg-vol');if(sv!==null&&!isNaN(+sv))userVol=Math.max(0,Math.min(1,+sv))}catch(e){}
-
-function musicVol(){return userVol*((cur==='game'&&mode==='audio')?GAME_FACTOR:1)}
-
-
-
-/* iPhone e iPad ignoram o volume do <audio>. Neles o volume passa por um "controle de ganho" do Web Audio. */
-
-var isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
-
-var mctx=null,mgain=null;
-
-function musicSetup(){
-
-  if(!isIOS||mgain)return;
-
-  try{
-
-    mctx=new (window.AudioContext||window.webkitAudioContext)();
-
-    var src=mctx.createMediaElementSource(bgm);
-
-    mgain=mctx.createGain();src.connect(mgain);mgain.connect(mctx.destination);
-
-  }catch(e){mgain=null}
-
+// Barras acima do personagem: vida (verde, só no modo boss) e stamina (azul)
+function drawPlayerBars() {
+  const showHP = mode === "boss";
+  const w = player.size + 16, x = player.x + player.size / 2 - w / 2, h = 5;
+  const n = showHP ? 2 : 1, totalH = n * h + (n - 1) * 2;
+  let y = player.y - 6 - totalH;
+  if (y < 2) y = player.y + player.size + 6;   // perto do topo da tela: desenha embaixo
+  const bar = (ratio, color) => {
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = color; ctx.fillRect(x, y, w * Math.max(0, Math.min(1, ratio)), h);
+    ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    y += h + 2;
+  };
+  if (showHP) bar(playerHP / PLAYER_MAX_HP, "#4dff88");
+  bar(stamina / STAMINA_MAX, exhausted && Math.floor(performance.now() / 150) % 2 ? "#5b7a99" : "#00ACFF");
 }
 
+function drawBossScene() {
+  drawKnightWall();
+  if (wave) {
+    ctx.globalAlpha = Math.max(0, 1 - wave.r / 170);
+    ctx.strokeStyle = "#00ACFF"; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.arc(wave.x, wave.y, wave.r, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  if (drop) {
+    const s = drop.size * (1 + 0.15 * Math.sin(performance.now() / 120));
+    const cx = drop.x + drop.size / 2, cy = drop.y + drop.size / 2;
+    if (drop.aura && boss && boss.idx !== 1) {
+      const pulse = 1 + 0.12 * Math.sin(performance.now() / 100);
+      ctx.save(); ctx.globalAlpha = 0.75; ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 3;
+      ctx.shadowColor = "#ffffff"; ctx.shadowBlur = 22;
+      ctx.beginPath(); ctx.arc(cx, cy, drop.size * 1.25 * pulse, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.22; ctx.fillStyle = "#ffffff";
+      ctx.beginPath(); ctx.arc(cx, cy, drop.size * 1.1 * pulse, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); ctx.shadowColor = "#ff2638"; ctx.shadowBlur = 14;
+    ctx.fillStyle = "#ff2638";
+    ctx.fillRect(cx - s / 2, cy - s / 2, s, s); ctx.restore();
+  }
+  drawHazards();
+  if (!boss) return;
+  if (boss.idx === 1) { drawPeep(boss); return; }
+  if (boss.idx === 2) { drawKnight(boss); return; }
 
-
-/* Aplica o volume calculado (pelo ganho no iPhone; pelo volume normal nos demais). */
-
-function applyVol(){
-
-  var v=musicVol();
-
-  if(mgain){mgain.gain.value=v;bgm.volume=1}else{bgm.volume=v}
-
+  drawBull(boss);
 }
 
+function drawBossHud() {
+  const pw = Math.min(150, W() / 2 - 60), px = 15, py = 44;   // vida do jogador
+  const r = Math.max(0, playerHP / PLAYER_MAX_HP);
+  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(px, py, pw, 12);
+  ctx.fillStyle = r > 0.5 ? "#4dff88" : r > 0.25 ? "#ffb703" : "#ff5a5a";
+  ctx.fillRect(px, py, pw * r, 12);
+  ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(px, py, pw, 12);
+  const sy = py + 16;                                 // stamina logo abaixo da barra verde
+  ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(px, sy, pw, 8);
+  ctx.fillStyle = exhausted && Math.floor(performance.now() / 150) % 2 ? "#5b7a99" : "#00ACFF";
+  ctx.fillRect(px, sy, pw * Math.max(0, Math.min(1, stamina / STAMINA_MAX)), 8);
+  ctx.strokeStyle = "white"; ctx.lineWidth = 2; ctx.strokeRect(px, sy, pw, 8);
 
-
-/* Toca a música (só depois da primeira interação). */
-
-function musicPlay(){
-
-  if(!interacted)return;
-
-  try{
-
-    musicSetup();
-
-    if(mctx&&mctx.state==='suspended')mctx.resume();
-
-    applyVol();
-
-    var p=bgm.play();if(p&&p.catch)p.catch(function(){});   /* ignora a recusa do navegador */
-
-  }catch(e){}
-
+  if (boss && (bossStage !== "cutscene" || stageT > 0.3)) {   // nome e barra do boss
+    const bw = Math.min(W() - 40, 480), bx = W() / 2 - bw / 2, by = 78;
+    ctx.textAlign = "center";
+    const col = boss.fury ? NEON.orange : NEON.magenta;
+    neon(col, 12); ctx.fillStyle = col;
+    ctx.font = "bold 18px 'Arial Black', Arial, sans-serif";
+    ctx.fillText(boss.name, W() / 2, 72); noNeon();
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(bx, by, bw, 16);
+    neon(col, 10); ctx.fillStyle = col;
+    ctx.fillRect(bx, by, bw * Math.max(0, boss.hpShown / boss.maxHp), 16); noNeon();
+    ctx.fillStyle = "rgba(0,0,0,0.55)";               // divisões: 1 por ponto de vida
+    for (let i = 1; i < boss.maxHp; i++) ctx.fillRect(bx + bw * i / boss.maxHp - 1, by, 2, 16);
+    neon(NEON.cyan, 8); ctx.strokeStyle = NEON.cyan; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, 16); noNeon();
+    ctx.textAlign = "left";
+  }
+  if (bossStage === "intro" && stageT > 1.2) {
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(performance.now() / 150);
+    ctx.fillStyle = "#ff5a5a"; ctx.font = "bold 20px Arial"; ctx.textAlign = "center";
+    ctx.fillText("Algo se aproxima...", W() / 2, H() * 0.3);
+    ctx.textAlign = "left"; ctx.globalAlpha = 1;
+  }
+  if (bossStage === "cutscene") {                     // barras de cinema
+    ctx.fillStyle = "black";
+    ctx.fillRect(0, 0, W(), 50); ctx.fillRect(0, H() - 50, W(), 50);
+    neon(NEON.cyan, 10); ctx.fillStyle = NEON.cyan; ctx.fillRect(0, 50, W(), 2); ctx.fillRect(0, H() - 52, W(), 2); noNeon();
+  }
+  if (furyFlash > 0) {
+    ctx.fillStyle = "rgba(255,0,0," + (furyFlash * 0.35) + ")";
+    ctx.fillRect(0, 0, W(), H());
+  }
 }
 
-
-
-/* Destrava e mantém a música: tenta a cada toque/tecla até começar (o iPhone só libera em touchend/click).
-
-   O "true" no final faz o ouvinte rodar na fase de captura, antes dos demais. */
-
-function musicKick(){
-
-  interacted=true;
-
-  if(bgm.paused||(mctx&&mctx.state!=='running'))musicPlay();
-
-}
-
-['pointerdown','pointerup','touchend','click','keydown'].forEach(function(ev){document.addEventListener(ev,musicKick,true)});
-
-/* Se o jogador volta para a página (ex.: depois de bloquear a tela), retoma a música. */
-
-document.addEventListener('visibilitychange',function(){if(!document.hidden&&interacted)musicKick()});
-
-
-
-/* Controle deslizante de volume nas Configurações: atualiza, salva e aplica na hora. */
-
-var volEl=$('vol'),volTxt=$('vol-v');
-
-volEl.value=Math.round(userVol*100);volTxt.textContent=volEl.value+'%';
-
-volEl.addEventListener('input',function(){
-
-  userVol=volEl.value/100;volTxt.textContent=volEl.value+'%';
-
-  try{localStorage.setItem('apg-vol',userVol)}catch(e){}
-
-  applyVol();
-
-});
-
-
-
-/* =========================================================
-
-   FLUXO DA PARTIDA
-
-   ========================================================= */
-
-
-
-/* Prepara e abre uma partida. Depois mostra "Clique no botão vermelho" e espera o jogador começar.
-
-   curDiff guarda a dificuldade para registrar a pontuação no ranking.
-
-   (pStart é declarada mais abaixo; var permite usá-la aqui.) */
-
-function start(diff){
-
-  d=DIFF[diff];curDiff=diff;
-
-  pStart=null;pull.style.transition='';pull.style.transform='';   /* garante a alça no lugar */
-
-  if(!ctx){try{ctx=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}}
-
-  if(ctx&&ctx.state==='suspended')ctx.resume();
-
-  /* "destrava" a fala do navegador com uma fala silenciosa */
-
-  if(window.speechSynthesis){try{speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}catch(e){}}
-
-  clearTimeout(timer);score=0;step=0;current=null;
-
-  hardMode=diff==='dificil';
-
-  toy.classList.toggle('hard',hardMode);   /* mostra ou esconde as peças extras */
-
-  scEl.textContent='0';clearCmd();clearGlow();
-
-  state='ready';
-
-  show('game');
-
-  var msg='Clique no botão vermelho para começar!';
-
-  btn.classList.add('glow');
-
-  if(mode==='audio')say(msg,1);else{cmdEl.classList.add('small');cmdEl.textContent=msg}
-
-}
-
-
-
-/* Começa de verdade (após o clique no botão vermelho): toca a vinheta e agenda o 1º comando. */
-
-function begin(){
-
-  clearGlow();cmdEl.classList.remove('small');clearCmd();
-
-  if(window.speechSynthesis)speechSynthesis.cancel();
-
-  state='gap';
-
-  tone(440,.1,'square',0);tone(660,.1,'square',.1);tone(880,.16,'square',.2);
-
-  timer=setTimeout(next,1000);
-
-}
-
-
-
-/* Sorteia e anuncia o próximo comando (evita repetir o anterior na maior parte das vezes).
-
-   Se o tempo acabar antes da ação, chama fail(). O tempo diminui a cada acerto (Math.pow). */
-
-function next(){
-
-  var c;
-
-  do{c=d.keys[Math.floor(Math.random()*d.keys.length)]}while(c===current&&Math.random()<.6);
-
-  current=c;state='listening';
-
-  if(mode==='audio')say(CMD[c],Math.min(d.rm,1+step*d.rs),hardMode);else if(hardMode)hardText(CMD[c]);else cmdEl.textContent=CMD[c];
-
-  if(d.glow)TARGET[c].classList.add('glow');
-
-  timer=setTimeout(fail,Math.max(d.wm,d.w*Math.pow(d.wd,step)));
-
-}
-
-
-
-/* Chamada sempre que o jogador faz uma ação (aperta, puxa, gira, desliza ou vira). */
-
-function act(a){
-
-  if(state==='ready'){if(a==='aperta')begin();return}   /* antes de começar, só o botão vermelho vale */
-
-  if(state!=='listening')return;                        /* ignora ações fora do momento certo */
-
-  clearTimeout(timer);clearGlow();clearCmd();
-
-  if(a!==current){fail();return}                        /* ação errada = fim de jogo */
-
-  score+=d.pts;step++;state='gap';                      /* acerto: soma pontos e acelera */
-
-  scEl.textContent=score;sOk();
-
-  toy.classList.add('ok');setTimeout(function(){toy.classList.remove('ok')},120);
-
-  timer=setTimeout(next,Math.max(d.gm,d.g*Math.pow(d.gd,step)));
-
-}
-
-
-
-/* Fim de jogo: toca o som de erro, treme o brinquedo, guarda a melhor pontuação,
-
-   soma os pontos ao saldo da Loja, envia a pontuação ao ranking e volta ao menu. */
-
-function fail(){
-
-  if(state==='idle')return;
-
-  clearTimeout(timer);clearGlow();state='idle';
-
-  if(window.speechSynthesis)speechSynthesis.cancel();
-
-  sFail();
-
-  toy.classList.remove('shake');void toy.offsetWidth;toy.classList.add('shake');   /* o "void offsetWidth" reinicia a animação */
-
-  setTimeout(function(){
-
-    if(score>best){best=score;saveBest()}
-
-    coins+=score;saveShop();
-
-    var l=$('last');l.hidden=false;l.textContent='Fim de jogo: '+score+' pontos'+(score?' (+'+fmt(score)+' na Loja)':'');
-
-    show('home');
-
-    rankSend(curDiff,score).then(function(saved){
-      if(score>0&&l.textContent.indexOf('Fim de jogo:')===0)l.textContent+=' · Pontuação enviada ao ranking.';
-    }).catch(function(err){
-      if(score>0&&l.textContent.indexOf('Fim de jogo:')===0)l.textContent+=' · Não foi possível salvar no ranking. Confira a conexão e tente novamente.';
-      if(window.console&&console.error)console.error('Erro ao salvar pontuação:',err);
+// ATUALIZAÇÃO
+function update(dt) {
+  if (paused) return;
+  shake = Math.max(0, shake - dt);
+  floats.forEach(f => { f.life -= dt; f.y -= 40 * dt; });
+  floats = floats.filter(f => f.life > 0);
+  flash = Math.max(0, flash - dt);
+  invuln = Math.max(0, invuln - dt);
+  fade = Math.max(0, fade - dt);
+  if (screen !== "playing" || gameOver) return;
+
+  if (mode === "boss") { updateBoss(dt); return; }
+
+  timeLeft -= dt;
+  if (timeLeft <= 0) {
+    timeLeft = 0; gameOver = true; keys.clear(); running = false; stick = null; beep(300, 0.4);
+    recordBest();
+    submitRecord();
+    return;
+  }
+
+  // Modo difícil: blocos vão e voltam o tempo todo
+  if (mode === "hard") {
+    elapsed += dt;
+    obstacles.forEach(o => {
+      const s = Math.sin(elapsed * o.spd + o.phase) * o.amp;
+      o.x = o.ax + (o.axis === 0 ? s : 0);
+      o.y = o.ay + (o.axis === 1 ? s : 0);
+      clampEntity(o);
     });
+  }
 
-  },900);
+  if (mode === "easy") updatePowerups(dt); else if (mode === "hard") updateDebuffs(dt);
+  if (debuff === "slow") running = false;   // lentidão: não pode correr
 
+  movePlayer(dt);
+
+  // Item vermelho: nasce em qualquer lugar, sem ficar em cima de brancos
+  // Ímã atua só no bloco vermelho que dá pontos (nunca nos power-ups)
+  const magnetReach = mode === "easy" && magnetTime > 0 &&
+    Math.hypot(player.x + player.size / 2 - (item.x + item.size / 2),
+               player.y + player.size / 2 - (item.y + item.size / 2)) < MAGNET_RADIUS;
+  if (overlap(player, item) || magnetReach) {
+    hit(true, item.x, item.y, mode === "hard" ? HARD_ITEM_POINTS : 1);
+    placeItem(item);
+    if (fake) placeNear(fake, item);
+    collected++;
+    if (mode === "easy" && collected % ITEMS_PER_SHUFFLE === 0) shuffleObstacles();
+  }
+  // Bloco mímico (falso): tira 1 ponto
+  if (fake && overlap(player, fake)) {
+    hit(false, fake.x, fake.y, 1);
+    placeNear(fake, item);
+  }
+
+  // Obstáculos
+  if (mode === "easy") {
+    obstacles.forEach(obs => {
+      if (shield <= 0 && overlap(player, obs)) {
+        hit(false, obs.x, obs.y);
+        const others = obstacles.filter(o => o !== obs);
+        const p = safePosition(obs.size, [player, item, ...powerupZones(), ...others], 60);
+        obs.x = p.x; obs.y = p.y;
+      }
+    });
+  } else if (invuln <= 0) {
+    const obs = obstacles.find(o => overlap(player, o));
+    if (obs) { hit(false, obs.x, obs.y, SPIKE_DAMAGE); invuln = INVULN_TIME; fade = FADE_TIME; }
+  }
 }
 
+// DESENHO
+function drawButton(b) {
+  if (b.outline) {
+    ctx.strokeStyle = "yellow"; ctx.lineWidth = 3;
+    ctx.strokeRect(b.x + 1.5, b.y + 1.5, b.w - 3, b.h - 3);
+    ctx.fillStyle = "yellow";
+  } else {
+    ctx.fillStyle = b.color || "yellow";
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = "#140032";
+  }
+  ctx.textAlign = "center";
+  ctx.font = "bold " + (b.font || 26) + "px Arial";
+  ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + (b.sub ? -4 : 8));
+  if (b.sub) { ctx.font = "14px Arial"; ctx.fillText(b.sub, b.x + b.w / 2, b.y + b.h / 2 + 20); }
+  ctx.textAlign = "left";
+}
 
+function drawSpiky(o) {
+  const s = o.size, t = 5, n = 3, w = (s - 2 * t) / n;
+  ctx.fillRect(o.x + t, o.y + t, s - 2 * t, s - 2 * t);
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a = o.x + t + i * w, b = o.y + t + i * w;
+    ctx.moveTo(a, o.y + t); ctx.lineTo(a + w / 2, o.y); ctx.lineTo(a + w, o.y + t);
+    ctx.moveTo(a, o.y + s - t); ctx.lineTo(a + w / 2, o.y + s); ctx.lineTo(a + w, o.y + s - t);
+    ctx.moveTo(o.x + t, b); ctx.lineTo(o.x, b + w / 2); ctx.lineTo(o.x + t, b + w);
+    ctx.moveTo(o.x + s - t, b); ctx.lineTo(o.x + s, b + w / 2); ctx.lineTo(o.x + s - t, b + w);
+  }
+  ctx.fill();
+}
 
-/* =========================================================
+function drawTitle(text, size, y, color) {
+  ctx.fillStyle = color; ctx.textAlign = "center";
+  ctx.font = "bold " + size + "px 'Arial Black', Arial, sans-serif";
+  const tw = ctx.measureText(text).width;
+  if (tw > W() - 40) {   // reduz a fonte se o texto não couber na tela
+    ctx.font = "bold " + Math.floor(size * (W() - 40) / tw) + "px 'Arial Black', Arial, sans-serif";
+  }
+  ctx.fillText(text, W() / 2, y);
+  ctx.textAlign = "left";
+}
 
-   CONTROLES DO BRINQUEDO
+function draw() {
+  ctx.fillStyle = "#140032";
+  ctx.fillRect(0, 0, W(), H());
+  const cy = H() / 2;
 
-   Usam "pointer events" (funcionam com dedo, mouse e caneta).
+  if (screen === "login") { drawLogin(); return; }
+  if (screen === "hall") { drawHall(); return; }
+  if (screen === "settings") { drawSettings(); return; }
+  if (screen === "menu") {
+    drawTitle("CYBER TECH GAME", 52, menuLayout().top - 38, "yellow");
+    getButtons().forEach(drawButton);
+    if (me) {
+      ctx.fillStyle = "#00e5ff"; ctx.font = "bold 14px Arial"; ctx.textAlign = "right";
+      ctx.fillText("Jogador: " + me.name, W() - 15, 24);
+      ctx.textAlign = "left";
+    }
+    return;
+  }
+  if (screen === "modes") {
+    drawTitle("ESCOLHA O MODO DE JOGO", 34, cy - 100, "yellow");
+    getButtons().forEach(drawButton);
+    ctx.fillStyle = "white"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+    ctx.fillText("ou pressione 1 (clássico) / 2 (boss) · Esc para voltar", W() / 2, cy + 198);
+    ctx.textAlign = "left";
+    return;
+  }
+  if (screen === "difficulty") {
+    drawTitle("ESCOLHA A DIFICULDADE", 34, cy - 100, "yellow");
+    getButtons().forEach(drawButton);
+    ctx.fillStyle = "white"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+    ctx.fillText("ou pressione 1 (fácil) / 2 (difícil) · Esc para voltar", W() / 2, cy + 198);
+    ctx.textAlign = "left";
+    return;
+  }
 
-   ========================================================= */
+  if (screen === "rewards") { drawRewards(); return; }
+  if (screen === "congrats") { drawCongrats(); return; }
 
+  ctx.fillStyle = "white";
+  obstacles.forEach(o => mode === "hard" ? drawSpiky(o) : ctx.fillRect(o.x, o.y, o.size, o.size));
 
+  powerups.forEach(p => {
+    if (p.life < 2 && Math.floor(p.life * 6) % 2 === 0) return;   // pisca antes de sumir
+    if (p.type === "shield") {
+      ctx.fillStyle = "#2ecc40"; ctx.fillRect(p.x, p.y, p.size, p.size);
+    } else {
+      ctx.fillStyle = "#00ACFF"; ctx.fillRect(p.x, p.y, p.size / 2, p.size);
+      ctx.fillStyle = "red"; ctx.fillRect(p.x + p.size / 2, p.y, p.size / 2, p.size);
+    }
+  });
 
-/* APERTA: botão vermelho. A classe "down" faz o botão afundar. */
+  if (fake) { ctx.fillStyle = "#a30000"; ctx.fillRect(fake.x, fake.y, fake.size, fake.size); }
+  ctx.fillStyle = "red";
+  ctx.fillRect(item.x, item.y, item.size, item.size);
 
-btn.addEventListener('pointerdown',function(e){e.preventDefault();btn.classList.add('down');act('aperta')});
+  if (mode === "boss") drawBossScene();
 
-['pointerup','pointerleave','pointercancel'].forEach(function(ev){btn.addEventListener(ev,function(){btn.classList.remove('down')})});
+  // Após o dano fica a 15% e vai ficando visível aos poucos até 100%
+  ctx.globalAlpha = fade > 0 ? 0.15 + 0.85 * (1 - fade / FADE_TIME) : 1;
+  ctx.fillStyle = flash > 0 ? flashColor : "yellow";
+  ctx.fillRect(player.x, player.y, player.size, player.size);
+  if (running && keys.size > 0) {
+    ctx.strokeStyle = "white"; ctx.lineWidth = 3;
+    ctx.strokeRect(player.x, player.y, player.size, player.size);
+  }
+  if (magnetTime > 0) {
+    ctx.strokeStyle = "rgba(0,172,255,0.45)"; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(player.x + player.size / 2, player.y + player.size / 2, MAGNET_RADIUS, 0, Math.PI * 2); ctx.stroke();
+  }
+  if (shield > 0) {
+    ctx.strokeStyle = "#4dff88"; ctx.lineWidth = 4;
+    ctx.strokeRect(player.x - 4, player.y - 4, player.size + 8, player.size + 8);
+  }
+  ctx.globalAlpha = 1;
+  drawPlayerBars();
 
-btn.addEventListener('keydown',function(e){if(e.key===' '||e.key==='Enter'){e.preventDefault();btn.classList.add('down');act('aperta')}});
+  ctx.font = "bold 20px Arial";
+  floats.forEach(f => {
+    const fadeAlpha = f.maxLife ? Math.min(1, f.life / 0.45) : Math.max(0, f.life / 0.8);
+    ctx.globalAlpha = fadeAlpha * (f.opacity === undefined ? 1 : f.opacity);
+    ctx.fillStyle = f.color;
+    if (f.centered) ctx.textAlign = "center";
+    ctx.fillText(f.text, f.x, f.y);
+    if (f.centered) ctx.textAlign = "left";
+  });
+  ctx.globalAlpha = 1;
 
-btn.addEventListener('keyup',function(){btn.classList.remove('down')});
+  if (controlMode === "analog" && screen === "playing" && !gameOver && !paused && !touchShown) {
+    const bx = W()/2, by = H() - Math.max(82, H()*0.14);
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(bx, by, STICK_MAX, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.beginPath(); ctx.arc(bx, by, 22, 0, Math.PI*2); ctx.fill();
+  }
+  if (stick) {
+    const vx = stick.x - stick.ox, vy = stick.y - stick.oy;
+    const len = Math.hypot(vx, vy) || 1;
+    const k = Math.min(len, STICK_MAX) / len;
+    ctx.strokeStyle = "rgba(255,255,255,0.5)"; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(stick.ox, stick.oy, STICK_MAX, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "rgba(255,255,0,0.6)";
+    ctx.beginPath(); ctx.arc(stick.ox + vx * k, stick.oy + vy * k, 22, 0, Math.PI * 2); ctx.fill();
+  }
 
+  // HUD
+  ctx.shadowColor = "black"; ctx.shadowBlur = 5;
+  ctx.fillStyle = "white";
+  ctx.font = "bold 22px 'Arial Black', Arial, sans-serif";
+  ctx.fillText("Pontuação: " + score, 15, 30);
+  ctx.font = "bold 14px Arial";
+  if (mode !== "boss") ctx.fillText(mode === "easy"
+    ? "Troca de blocos: " + (collected % ITEMS_PER_SHUFFLE) + "/" + ITEMS_PER_SHUFFLE
+    : "Modo difícil: espinhos -" + SPIKE_DAMAGE + " · vermelho +" + HARD_ITEM_POINTS, 15, 52);
+  if (mode === "easy") {
+    if (magnetTime > 0) { ctx.fillStyle = "#00ACFF"; ctx.fillText("Ímã: " + Math.ceil(magnetTime) + "s", 15, 72); }
+    if (shield > 0) { ctx.fillStyle = "#4dff88"; ctx.fillText("Invencível: " + Math.ceil(shield) + "s", 15, 92); }
+    ctx.fillStyle = "white";
+  } else if (debuff) {
+    ctx.fillStyle = "#ff5a5a"; ctx.textAlign = "center";
+    ctx.fillText("DEBUFF: " + DEBUFFS[debuff] + " (" + Math.ceil(debuffTime) + "s)", W() / 2, 66);
+    ctx.textAlign = "left"; ctx.fillStyle = "white";
+  }
+  ctx.font = "bold 22px 'Arial Black', Arial, sans-serif";
+  ctx.textAlign = "right";
+  if (mode !== "boss") ctx.fillText("Tempo: " + Math.ceil(timeLeft), W() - 15, 30);
+  ctx.textAlign = "left";
 
+  if (!gameOver && mode !== "boss" && timeLeft > GAME_TIME - 6) {
+    ctx.font = "bold 16px Arial"; ctx.textAlign = "center";
+    ctx.fillText(touchShown ? "Use os botões (toque 2x rápido para correr)"
+                            : "WASD / setas (toque 2x rápido para correr) ou arraste o dedo",
+                 W() / 2, touchShown ? 100 : H() - 20);
+    ctx.textAlign = "left";
+  }
+  ctx.shadowBlur = 0;
 
-/* PUXA: arrastar a alça para cima. pStart guarda onde o dedo começou; ao subir 45px, conta como puxada. */
+  if (mode === "boss") drawBossHud();
+  if (!gameOver && !paused) getButtons().forEach(drawButton);
 
-var pStart=null,pDone=false;
+  if (gameOver) {
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(0, 0, W(), H());
+    drawTitle(endTitle, 45, cy - 70, endColor);
+    if (endSub) { ctx.fillStyle = "white"; ctx.font = "bold 16px Arial"; ctx.textAlign = "center"; ctx.fillText(endSub, W() / 2, cy - 44); ctx.textAlign = "left"; }
+    ctx.fillStyle = "#00ACFF"; ctx.font = "bold 28px Arial"; ctx.textAlign = "center";
+    ctx.fillText("Pontuação final: " + score, W() / 2, cy - 20);
+    const reachedMeta = tierFor(score);
+    if (reachedMeta) {
+      const wl = cooldownLeft();
+      ctx.fillStyle = wl > 0 ? "#ffb703" : "#4dff88"; ctx.font = "bold 16px Arial";
+      ctx.fillText(wl > 0 ? "Meta atingida! Aguarde " + fmtTime(wl) + " para resgatar"
+                          : "Meta atingida! Você ganhou " + balasText(reachedMeta.balas), W() / 2, cy + 6);
+    }
+    getButtons().forEach(drawButton);
+    ctx.fillStyle = "white"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+    ctx.fillText("ou pressione Enter / Espaço", W() / 2, cy + (canClaimNow(score) ? 237 : 165));
+    ctx.textAlign = "left";
+  }
 
-/* translate3d move a alça para cima, até 70px. */
+  if (paused) {
+    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillRect(0, 0, W(), H());
+    drawTitle("PAUSADO", 45, cy - 60, "yellow");
+    getButtons().forEach(drawButton);
+    ctx.fillStyle = "white"; ctx.font = "14px Arial"; ctx.textAlign = "center";
+    ctx.fillText("P / Esc / Enter para continuar", W() / 2, cy + 130);
+    ctx.textAlign = "left";
+  }
+}
 
-function pMove(dy){pull.style.transform='translate3d(0,'+(-Math.max(0,Math.min(dy,70)))+'px,0)'}
+// LOOP PRINCIPAL
+function loop(ts) {
+  const dt = Math.min((ts - (last || ts)) / 1000, 0.1);
+  last = ts;
+  update(dt);
+  updateTouchControls();
+  syncNameInput();
+  ctx.save();
+  if (shake > 0 && screen === "playing" && !gameOver) {   // tremor de tela (só durante a partida)
+    const m = 14 * Math.min(1, shake * 2);
+    ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+  }
+  draw();
+  ctx.restore();
+  requestAnimationFrame(loop);
+}
 
-/* Força o navegador a redesenhar o elemento (esconde e mostra) para eliminar resíduos visuais. */
+// ===== MÚSICA DE FUNDO =====
+const MUSIC_VOLUME = 0.5;   // volume inicial padrão
+const bgm = new Audio("assets/audio/cyberpunk-suspense.mp3");
+function setMusicVolume(value) {
+  musicVolumePercent = Math.max(0, Math.min(100, Math.round(value / 5) * 5));
+  localStorage.setItem("ctg_music_volume", String(musicVolumePercent));
+  if (typeof bgm !== "undefined") bgm.volume = musicVolumePercent / 100;
+}
+bgm.loop = true;            // repete sem parar
+bgm.volume = musicVolumePercent / 100;
+bgm.preload = "auto";
 
-function repaint(el){el.style.display='none';void el.offsetHeight;el.style.display=''}
+let musicStarted = false;
+const MUSIC_EVENTS = ["pointerdown", "touchend", "click", "keydown"];
 
-/* Devolve a alça ao lugar com animação suave e, no fim, limpa e redesenha. */
+// Os navegadores só liberam áudio depois de uma interação:
+// a música começa na primeira vez que a pessoa tocar, clicar ou digitar.
+function startMusic() {
+  bgm.play().then(() => {
+    musicStarted = true;
+    MUSIC_EVENTS.forEach(ev => window.removeEventListener(ev, startMusic, true));
+  }).catch(() => {});       // se o navegador recusar, tenta de novo na próxima interação
+}
+MUSIC_EVENTS.forEach(ev => window.addEventListener(ev, startMusic, true));
 
-function pReset(){pull.style.transition='transform .18s';pull.style.transform='translate3d(0,0,0)';setTimeout(function(){pull.style.transition='';pull.style.transform='';repaint(pull)},230)}
-
-hit.addEventListener('pointerdown',function(e){e.preventDefault();hit.setPointerCapture(e.pointerId);pStart=e.clientY;pDone=false});   /* setPointerCapture: continua recebendo o movimento mesmo se o dedo sair da área */
-
-hit.addEventListener('pointermove',function(e){
-
-  if(pStart===null)return;
-
-  var dy=pStart-e.clientY;pMove(dy);
-
-  if(!pDone&&dy>=45){pDone=true;act('puxa')}
-
+// Pausa quando a aba vai para segundo plano e volta quando a pessoa retorna
+document.addEventListener("visibilitychange", () => {
+  if (!musicStarted) return;
+  if (document.hidden) bgm.pause(); else bgm.play().catch(() => {});
 });
 
-/* Ao soltar (ou perder o toque), devolve a alça. O teste evita executar duas vezes. */
-
-function pEnd(){if(pStart===null)return;pStart=null;pReset()}
-
-hit.addEventListener('pointerup',pEnd);hit.addEventListener('pointercancel',pEnd);hit.addEventListener('lostpointercapture',pEnd);
-
-hit.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();pMove(60);act('puxa');setTimeout(pReset,150)}});
-
-
-
-/* GIRA: gira o disco. Calcula o ângulo do dedo em relação ao centro do disco (Math.atan2) e
-
-   soma a variação. Com 70 graus acumulados, conta como giro. */
-
-var dAng=null,dAcc=0,dRot=0,dDone=false;
-
-function angle(e){var r=dial.getBoundingClientRect();return Math.atan2(e.clientY-(r.top+r.height/2),e.clientX-(r.left+r.width/2))*180/Math.PI}
-
-dial.addEventListener('pointerdown',function(e){e.preventDefault();dial.setPointerCapture(e.pointerId);dAng=angle(e);dAcc=0;dDone=false});
-
-dial.addEventListener('pointermove',function(e){
-
-  if(dAng===null)return;
-
-  var a=angle(e),df=a-dAng;
-
-  if(df>180)df-=360;if(df<-180)df+=360;   /* corrige a virada de 180 para -180 graus */
-
-  dAng=a;dAcc+=df;dRot+=df;
-
-  dial.style.transform='rotate('+dRot+'deg)';
-
-  if(!dDone&&Math.abs(dAcc)>=70){dDone=true;act('gira')}
-
-});
-
-function dEnd(){dAng=null}
-
-dial.addEventListener('pointerup',dEnd);dial.addEventListener('pointercancel',dEnd);
-
-dial.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();dRot+=90;dial.style.transform='rotate('+dRot+'deg)';act('gira')}});
-
-
-
-/* DESLIZA (Difícil): arrasta a bolinha pela barra. sMax é o percurso máximo; com 60% dele, conta. */
-
-var sX=null,sMax=0,sDone=false;
-
-sl.addEventListener('pointerdown',function(e){e.preventDefault();sl.setPointerCapture(e.pointerId);sX=e.clientX;sDone=false;sMax=sl.clientWidth-kn.offsetWidth});
-
-sl.addEventListener('pointermove',function(e){
-
-  if(sX===null)return;
-
-  var dx=Math.max(0,Math.min(e.clientX-sX,sMax));
-
-  kn.style.transform='translateX('+dx+'px)';
-
-  if(!sDone&&dx>=sMax*.6){sDone=true;act('desliza')}
-
-});
-
-/* Ao soltar, a bolinha volta ao início com animação. */
-
-function sEnd(){sX=null;kn.style.transition='transform .2s';kn.style.transform='';setTimeout(function(){kn.style.transition=''},220)}
-
-sl.addEventListener('pointerup',sEnd);sl.addEventListener('pointercancel',sEnd);
-
-sl.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();act('desliza')}});
-
-
-
-/* VIRA (Difícil): um toque alterna a chave (classe "on") e registra a ação. */
-
-function flip(){sw.classList.toggle('on');act('vira')}
-
-sw.addEventListener('pointerdown',function(e){e.preventDefault();flip()});
-
-sw.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();flip()}});
-
-
-
-/* PRIMEIRO ACESSO: se o jogador ainda não tem nome de usuário, mostra a tela de login antes do menu. */
-
-if(!user)show('login');
-
-
-
-})();   /* fim da função que envolve todo o código */
+loadMe();
+if (!me) screen = "login";   // primeira vez: pede o nome de usuário
+syncMe();
+loadBest();
+loadCooldown();
+resizeCanvas();
+requestAnimationFrame(loop);
