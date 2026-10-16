@@ -691,6 +691,12 @@ var auraAudio=new Audio('assets/sons/aura-betinha.ogg');
 var phonkAudio=new Audio('assets/sons/sub_clair-brazilian-phonk-607622.mp3');
 auraAudio.preload='auto';phonkAudio.preload='auto';
 var auraSequence=0;
+function stopForbiddenSequence(){
+  auraSequence++;
+  try{auraAudio.pause();auraAudio.currentTime=0;phonkAudio.pause();phonkAudio.currentTime=0}catch(e){}
+  auraAudio.onended=null;phonkAudio.onended=null;
+  musicPlay();
+}
 function playForbiddenSequence(){
   auraSequence++;var seq=auraSequence;
   try{bgm.pause()}catch(e){}
@@ -705,13 +711,19 @@ function nameReset(){nameStep=0;nameBtn.textContent='Continuar';nameSay('')}
 
 function netErr(){nameSay('Não foi possível conectar ao servidor. Verifique a internet e tente novamente.')}
 
+var nameWasBlocked=false;
 nameIn.addEventListener('input',function(){
   $('name-count').textContent=nameIn.value.length;
   if(nameStep)nameReset();
-  if(blockedNameReason(nameIn.value)){
+  var isBlocked=blockedNameReason(nameIn.value);
+  if(isBlocked){
     nameSay('AURA BETINHA: essa combinação numérica não é permitida.',true);
-    playForbiddenSequence();
-  }else{nameSay('')}
+    if(!nameWasBlocked)playForbiddenSequence();
+  }else{
+    nameSay('');
+    if(nameWasBlocked)stopForbiddenSequence();
+  }
+  nameWasBlocked=isBlocked;
 });   /* valida durante a digitação */
 
 nameBtn.onclick=function(){
