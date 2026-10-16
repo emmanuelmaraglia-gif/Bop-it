@@ -688,7 +688,7 @@ function blockedNameReason(v){
   return Object.keys(numberWords).some(function(k){return numberWords[k].some(function(word){return (' '+norm+' ').indexOf(' '+normalizedName(word)+' ')!==-1})});
 }
 var auraAudio=new Audio('assets/sons/aura-betinha.ogg');
-var phonkAudio=new Audio('assets/sons/assets/sons/HOMAGEM FUNK!!! - Vai jogando, Vai tomando (PHONK) BEATS - KIXIA x EDITS - 𝙇𝙀𝙑𝙄𝘿𝙄 文 QUALY [2K].mp3.mpeg');
+var phonkAudio=new Audio('assets/sons/vai-jogando-vai-tomando-phonk.mp3');
 auraAudio.preload='auto';phonkAudio.preload='auto';
 var auraSequence=0;
 function stopForbiddenSequence(){
