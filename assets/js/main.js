@@ -673,11 +673,11 @@ var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;  
 /* Bloqueio de combinações proibidas no nome, sem depender do botão Continuar. */
 var forbiddenPairs=['67','76','42','24','61','16'];
 var numberWords={
-  '67':['sessenta e sete','sixty seven','sixty-seven','sesenta y siete'],
+  '67':['sessenta e sete','sixty seven','sixty-seven','six seven','six-seven','sixseven','sesenta y siete','sessantasete','soixante-sept','sessantasette'],
   '76':['setenta e seis','seventy six','seventy-six','setenta y seis'],
-  '42':['quarenta e dois','forty two','forty-two','cuarenta y dos'],
+  '42':['quarenta e dois','quarenta e duas','forty two','forty-two','cuarenta y dos','forty two','quarantadue','quarante-deux'],
   '24':['vinte e quatro','twenty four','twenty-four','veinticuatro','veinte y cuatro'],
-  '61':['sessenta e um','sessenta e uma','sixty one','sixty-one','sesenta y uno'],
+  '61':['sessenta e um','sessenta e uma','sixty one','sixty-one','sixtyone','sesenta y uno','sesenta y una','sessantuno','soixante et un','sessantuno'],
   '16':['dezesseis','dezasseis','sixteen','dieciséis','dieciseis']
 };
 function normalizedName(v){return v.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()}
