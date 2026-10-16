@@ -670,19 +670,57 @@ var RANK=FB_ON?RANK_FB:RANK_LOCAL;
 
 var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;   /* nameStep: 0 = 1º toque, 1 = aguardando confirmação */
 
+/* Bloqueio de combinações proibidas no nome, sem depender do botão Continuar. */
+var forbiddenPairs=['67','76','42','24','61','16'];
+var numberWords={
+  '67':['sessenta e sete','sixty seven','sixty-seven','sesenta y siete'],
+  '76':['setenta e seis','seventy six','seventy-six','setenta y seis'],
+  '42':['quarenta e dois','forty two','forty-two','cuarenta y dos'],
+  '24':['vinte e quatro','twenty four','twenty-four','veinticuatro','veinte y cuatro'],
+  '61':['sessenta e um','sessenta e uma','sixty one','sixty-one','sesenta y uno'],
+  '16':['dezesseis','dezasseis','sixteen','dieciséis','dieciseis']
+};
+function normalizedName(v){return v.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()}
+function blockedNameReason(v){
+  var raw=String(v||'').replace(/\s+/g,' ').trim();
+  if(forbiddenPairs.some(function(pair){return raw.indexOf(pair)!==-1}))return true;
+  var norm=normalizedName(raw);
+  return Object.keys(numberWords).some(function(k){return numberWords[k].some(function(word){return (' '+norm+' ').indexOf(' '+normalizedName(word)+' ')!==-1})});
+}
+var auraAudio=new Audio('assets/sons/aura-betinha.ogg');
+var phonkAudio=new Audio('assets/sons/sub_clair-brazilian-phonk-607622.mp3');
+auraAudio.preload='auto';phonkAudio.preload='auto';
+var auraSequence=0;
+function playForbiddenSequence(){
+  auraSequence++;var seq=auraSequence;
+  try{bgm.pause()}catch(e){}
+  try{auraAudio.pause();auraAudio.currentTime=0;phonkAudio.pause();phonkAudio.currentTime=0}catch(e){}
+  auraAudio.onended=function(){if(seq!==auraSequence)return;try{phonkAudio.currentTime=0;var p=phonkAudio.play();if(p&&p.catch)p.catch(function(){})}catch(e){}};
+  var p=auraAudio.play();if(p&&p.catch)p.catch(function(){});
+  phonkAudio.onended=function(){if(seq===auraSequence)musicPlay()};
+}
 function nameSay(t,w){nameMsg.textContent=t;nameMsg.hidden=!t;nameMsg.className='name-msg'+(w?' warn2':'')}
 
 function nameReset(){nameStep=0;nameBtn.textContent='Continuar';nameSay('')}
 
 function netErr(){nameSay('Não foi possível conectar ao servidor. Verifique a internet e tente novamente.')}
 
-nameIn.addEventListener('input',function(){$('name-count').textContent=nameIn.value.length;if(nameStep)nameReset()});   /* editar o nome recomeça a confirmação */
+nameIn.addEventListener('input',function(){
+  $('name-count').textContent=nameIn.value.length;
+  if(nameStep)nameReset();
+  if(blockedNameReason(nameIn.value)){
+    nameSay('AURA BETINHA: essa combinação numérica não é permitida.',true);
+    playForbiddenSequence();
+  }else{nameSay('')}
+});   /* valida durante a digitação */
 
 nameBtn.onclick=function(){
 
   var n=nameIn.value.replace(/\s+/g,' ').trim(),k=nkey(n);
 
   if(n.length<2){nameSay('Informe um nome com pelo menos 2 caracteres.');return}
+
+  if(blockedNameReason(n)){nameSay('AURA BETINHA: essa combinação numérica não é permitida.',true);playForbiddenSequence();return}
 
   if(!/^[\p{L}\p{N} ._-]+$/u.test(n)){nameSay('Utilize apenas letras, números, espaços, ponto, hífen e sublinhado.');return}
 
