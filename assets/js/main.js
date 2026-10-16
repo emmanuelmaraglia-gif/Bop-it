@@ -701,9 +701,9 @@ function playForbiddenSequence(){
   auraSequence++;var seq=auraSequence;
   try{bgm.pause()}catch(e){}
   try{auraAudio.pause();auraAudio.currentTime=0;phonkAudio.pause();phonkAudio.currentTime=0}catch(e){}
+  phonkAudio.onended=function(){if(seq===auraSequence)musicPlay()};
   auraAudio.onended=function(){if(seq!==auraSequence)return;try{phonkAudio.currentTime=0;var p=phonkAudio.play();if(p&&p.catch)p.catch(function(){})}catch(e){}};
   var p=auraAudio.play();if(p&&p.catch)p.catch(function(){});
-  phonkAudio.onended=function(){if(seq===auraSequence)musicPlay()};
 }
 function nameSay(t,w){nameMsg.textContent=t;nameMsg.hidden=!t;nameMsg.className='name-msg'+(w?' warn2':'')}
 
@@ -717,7 +717,7 @@ nameIn.addEventListener('input',function(){
   if(nameStep)nameReset();
   var isBlocked=blockedNameReason(nameIn.value);
   if(isBlocked){
-    nameSay('AURA BETINHA: essa combinação numérica não é permitida.',true);
+    nameSay('Tá achando que vai farmar aura betinha?',true);
     if(!nameWasBlocked)playForbiddenSequence();
   }else{
     nameSay('');
@@ -732,7 +732,7 @@ nameBtn.onclick=function(){
 
   if(n.length<2){nameSay('Informe um nome com pelo menos 2 caracteres.');return}
 
-  if(blockedNameReason(n)){nameSay('AURA BETINHA: essa combinação numérica não é permitida.',true);playForbiddenSequence();return}
+  if(blockedNameReason(n)){nameSay('Tá achando que vai farmar aura betinha?',true);playForbiddenSequence();return}
 
   if(!/^[\p{L}\p{N} ._-]+$/u.test(n)){nameSay('Utilize apenas letras, números, espaços, ponto, hífen e sublinhado.');return}
 

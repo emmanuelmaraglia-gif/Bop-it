@@ -450,7 +450,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--ink);outli
 
 .name-in:focus{outline:3px solid var(--ink);outline-offset:3px}
 
-.name-msg{max-width:320px;margin:0;font-weight:800;font-size:15px;color:#ffb3bd}.name-msg.warn2{color:var(--body)}
+.name-msg{max-width:320px;margin:0;font-weight:800;font-size:15px;color:#ffb3bd}.name-msg.warn2{color:#ff777f}
 
 .hall{width:min(420px,100%);display:flex;flex-direction:column;gap:14px}
 
