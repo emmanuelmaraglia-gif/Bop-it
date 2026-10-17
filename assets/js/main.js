@@ -673,11 +673,11 @@ var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;  
 /* Filtros de nome: combinações numéricas e linguagem ofensiva. */
 var forbiddenPairs=['67','76','42','24','61','16'];
 var numberWords={
- '67':['sessenta e sete','sessenta sete','sixty seven','six seven','sixseven','sixtyseven','sesenta y siete','sesenta y siete','soixante sept','soixante-sept','sessantasette','sessanta sette','siebenundsechzig','шестьдесят семь','六十七','육십칠','六十七','六十七','ستة وسبعون','सड़सठ','৬৭','sesenta y siete'],
+ '67':['sessenta e sete','sessenta sete','sessentaesete','sixty seven','six seven','sixseven','sixtyseven','six-seven','six_seven','six.seven','s1x s3v3n','s1xs3v3n','siiix seeeven','s i x s e v e n','sesentaysiete','soixantesept','шестьдесятсемь','sesenta y siete','sesenta y siete','soixante sept','soixante-sept','sessantasette','sessanta sette','siebenundsechzig','шестьдесят семь','六十七','육십칠','六十七','六十七','ستة وسبعون','सड़सठ','৬৭','sesenta y siete'],
  '76':['setenta e seis','seventy six','seventy-six','setenta y seis','soixante seize','soixante-seize','sechsundsiebzig','семьдесят шесть','七十六','칠십육','ستة وسبعون','छिहत्तर'],
- '42':['quarenta e dois','quarenta e duas','forty two','fortytwo','cuarenta y dos','cuarenta y dos','quarante deux','quarante-deux','quarantadue','zweiundvierzig','сорок два','四十二','사십이','اثنان وأربعون','बयालीस'],
+ '42':['quarenta e dois','quarenta e duas','quarentaedois','quarentaeduas','forty two','forty-two','fortytwo','fourty two','fourtytwo','cuarentaydos','quarante-deux','quarantedeux','zweiundvierzig','сорок два','四十二','사십이','cuarenta y dos','cuarenta y dos','quarante deux','quarante-deux','quarantadue','zweiundvierzig','сорок два','四十二','사십이','اثنان وأربعون','बयालीस'],
  '24':['vinte e quatro','twenty four','twentyfour','veinticuatro','veinte y cuatro','vingt quatre','vingt-quatre','ventiquattro','vierundzwanzig','двадцать четыре','二十四','이십사','أربعة وعشرون','चौबीस'],
- '61':['sessenta e um','sessenta e uma','sixty one','sixtyone','sesenta y uno','sesenta y una','soixante et un','soixante-et-un','sessantuno','einundsechzig','шестьдесят один','六十一','육십일','واحد وستون','इकसठ'],
+ '61':['sessenta e um','sessenta e uma','sessentaeum','sessentaeuma','sixty one','sixty-one','sixtyone','sixty won','soixante-et-un','soixanteetun','einundsechzig','шестьдесят один','六十一','육십일','sesenta y uno','sesenta y una','soixante et un','soixante-et-un','sessantuno','einundsechzig','шестьдесят один','六十一','육십일','واحد وستون','इकसठ'],
  '16':['dezesseis','dezasseis','sixteen','dieciseis','dieciséis','sixteen','seize','sedici','sechzehn','шестнадцать','十六','십육','ستة عشر','सोलह']
 };
 function mapUnicodeDigits(v){return String(v||'').replace(/[０-９٠-٩۰-۹०-९০-৯]/g,function(c){var cp=c.codePointAt(0);if(cp>=0xFF10&&cp<=0xFF19)return String(cp-0xFF10);if(cp>=0x0660&&cp<=0x0669)return String(cp-0x0660);if(cp>=0x06F0&&cp<=0x06F9)return String(cp-0x06F0);if(cp>=0x0966&&cp<=0x096F)return String(cp-0x0966);if(cp>=0x09E6&&cp<=0x09EF)return String(cp-0x09E6);return c})}
@@ -685,7 +685,8 @@ function normalizedName(v){
  var x=mapUnicodeDigits(String(v||'')).toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
  /* Homoglifos latinos comuns em alfabetos cirílico/grego e substituições leetspeak. */
  x=x.replace(/[аА]/g,'a').replace(/[еЕёЁ]/g,'e').replace(/[оО]/g,'o').replace(/[рР]/g,'p').replace(/[сС]/g,'c').replace(/[хХ]/g,'x').replace(/[уУ]/g,'y').replace(/[іІ]/g,'i').replace(/[јЈ]/g,'j').replace(/[кК]/g,'k').replace(/[мМ]/g,'m').replace(/[тТ]/g,'t').replace(/[вВ]/g,'b').replace(/[нН]/g,'h').replace(/[αΑ]/g,'a').replace(/[εΕ]/g,'e').replace(/[ιΙ]/g,'i').replace(/[οΟ]/g,'o').replace(/[ρΡ]/g,'p').replace(/[τΤ]/g,'t').replace(/[υΥ]/g,'y');
- x=x.replace(/0/g,'o').replace(/1/g,'i').replace(/3/g,'e').replace(/4/g,'a').replace(/5/g,'s').replace(/7/g,'t').replace(/\+/g,'t');
+ x=x.replace(/[аА]/g,'a').replace(/[еЕёЁ]/g,'e').replace(/[оО]/g,'o').replace(/[рР]/g,'p').replace(/[сС]/g,'c').replace(/[хХ]/g,'x').replace(/[іІ]/g,'i').replace(/[јЈ]/g,'j').replace(/[уУ]/g,'y');
+ x=x.replace(/0/g,'o').replace(/[1!|]/g,'i').replace(/3/g,'e').replace(/4/g,'a').replace(/5/g,'s').replace(/7/g,'t').replace(/\+/g,'t');
  return x.replace(/[^\p{L}\p{N}]+/gu,' ').replace(/\s+/g,' ').trim();
 }
 function numericNameBlocked(v){
@@ -697,6 +698,7 @@ function numericNameBlocked(v){
  return Object.keys(numberWords).some(function(k){return numberWords[k].some(function(word){var w=normalizedName(word);return (' '+norm+' ').indexOf(' '+w+' ')!==-1||compact.indexOf(w.replace(/\s+/g,''))!==-1})});
 }
 var offensiveTerms=[
+ /* Português e variações comuns */ 'put4','p.u.t.a','p u t a','puuuta','joaoputa','c4ralh0','porra','merda','buceta','b0ceta','arrombado','arrombada','filho da puta','filhadaputa','desgraçado','desgracado','nigger','nigga','traveco','kys','kill yourself','vai se matar','se mata',
  /* Português */ 'puta','puto','putinha','putaria','viado','bicha','baitola','faggot','retardado','retardada','mongoloide','arrombado','arrombada','caralho','cacete','porra','merda','bosta','cuzao','cuzão','fdp','filho da puta','filha da puta','vagabundo','vagabunda','desgraçado','desgracado','desgraçada','corno','babaca','otario','otário','idiota','imbecil','escroto','escrota','lixo humano','macaco','preto imundo','crioulo','judeu imundo',' nazista','viado','sapatão','sapatão','traveco','aberração','retard','kys','kill yourself','go kill yourself','vai se matar','se mata','some daqui e morre',
  /* Inglês */ 'fuck','fucker','fucking','shit','bitch','bastard','asshole','dickhead','dick','cunt','motherfucker','slut','whore','nigger','nigga','chink','spic','kike','fag','faggot','dyke','retard','retarded','kill yourself','go die',' kys ',
  /* Espanhol */ 'puta','puto','mierda','joder',' coño ','coño','pendejo','pendeja','cabron','cabrón','maricon','maricón','gilipollas','idiota','negro de mierda','matalo',
