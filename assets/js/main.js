@@ -670,23 +670,50 @@ var RANK=FB_ON?RANK_FB:RANK_LOCAL;
 
 var nameIn=$('name-in'),nameMsg=$('name-msg'),nameBtn=$('name-ok'),nameStep=0;   /* nameStep: 0 = 1º toque, 1 = aguardando confirmação */
 
-/* Bloqueio de combinações proibidas no nome, sem depender do botão Continuar. */
+/* Filtros de nome: combinações numéricas e linguagem ofensiva. */
 var forbiddenPairs=['67','76','42','24','61','16'];
 var numberWords={
-  '67':['sessenta e sete','sixty seven','sixty-seven','six seven','six-seven','sixseven','sesenta y siete','sessantasete','soixante-sept','sessantasette'],
-  '76':['setenta e seis','seventy six','seventy-six','setenta y seis'],
-  '42':['quarenta e dois','quarenta e duas','forty two','forty-two','cuarenta y dos','forty two','quarantadue','quarante-deux'],
-  '24':['vinte e quatro','twenty four','twenty-four','veinticuatro','veinte y cuatro'],
-  '61':['sessenta e um','sessenta e uma','sixty one','sixty-one','sixtyone','sesenta y uno','sesenta y una','sessantuno','soixante et un','sessantuno'],
-  '16':['dezesseis','dezasseis','sixteen','dieciséis','dieciseis']
+ '67':['sessenta e sete','sessenta sete','sixty seven','six seven','sixseven','sixtyseven','sesenta y siete','sesenta y siete','soixante sept','soixante-sept','sessantasette','sessanta sette','siebenundsechzig','шестьдесят семь','六十七','육십칠','六十七','六十七','ستة وسبعون','सड़सठ','৬৭','sesenta y siete'],
+ '76':['setenta e seis','seventy six','seventy-six','setenta y seis','soixante seize','soixante-seize','sechsundsiebzig','семьдесят шесть','七十六','칠십육','ستة وسبعون','छिहत्तर'],
+ '42':['quarenta e dois','quarenta e duas','forty two','fortytwo','cuarenta y dos','cuarenta y dos','quarante deux','quarante-deux','quarantadue','zweiundvierzig','сорок два','四十二','사십이','اثنان وأربعون','बयालीस'],
+ '24':['vinte e quatro','twenty four','twentyfour','veinticuatro','veinte y cuatro','vingt quatre','vingt-quatre','ventiquattro','vierundzwanzig','двадцать четыре','二十四','이십사','أربعة وعشرون','चौबीस'],
+ '61':['sessenta e um','sessenta e uma','sixty one','sixtyone','sesenta y uno','sesenta y una','soixante et un','soixante-et-un','sessantuno','einundsechzig','шестьдесят один','六十一','육십일','واحد وستون','इकसठ'],
+ '16':['dezesseis','dezasseis','sixteen','dieciseis','dieciséis','sixteen','seize','sedici','sechzehn','шестнадцать','十六','십육','ستة عشر','सोलह']
 };
-function normalizedName(v){return v.toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()}
-function blockedNameReason(v){
-  var raw=String(v||'').replace(/\s+/g,' ').trim();
-  if(forbiddenPairs.some(function(pair){return raw.indexOf(pair)!==-1}))return true;
-  var norm=normalizedName(raw);
-  return Object.keys(numberWords).some(function(k){return numberWords[k].some(function(word){return (' '+norm+' ').indexOf(' '+normalizedName(word)+' ')!==-1})});
+function mapUnicodeDigits(v){return String(v||'').replace(/[０-９٠-٩۰-۹०-९০-৯]/g,function(c){var cp=c.codePointAt(0);if(cp>=0xFF10&&cp<=0xFF19)return String(cp-0xFF10);if(cp>=0x0660&&cp<=0x0669)return String(cp-0x0660);if(cp>=0x06F0&&cp<=0x06F9)return String(cp-0x06F0);if(cp>=0x0966&&cp<=0x096F)return String(cp-0x0966);if(cp>=0x09E6&&cp<=0x09EF)return String(cp-0x09E6);return c})}
+function normalizedName(v){
+ var x=mapUnicodeDigits(String(v||'')).toLocaleLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+ /* Homoglifos latinos comuns em alfabetos cirílico/grego e substituições leetspeak. */
+ x=x.replace(/[аА]/g,'a').replace(/[еЕёЁ]/g,'e').replace(/[оО]/g,'o').replace(/[рР]/g,'p').replace(/[сС]/g,'c').replace(/[хХ]/g,'x').replace(/[уУ]/g,'y').replace(/[іІ]/g,'i').replace(/[јЈ]/g,'j').replace(/[кК]/g,'k').replace(/[мМ]/g,'m').replace(/[тТ]/g,'t').replace(/[вВ]/g,'b').replace(/[нН]/g,'h').replace(/[αΑ]/g,'a').replace(/[εΕ]/g,'e').replace(/[ιΙ]/g,'i').replace(/[οΟ]/g,'o').replace(/[ρΡ]/g,'p').replace(/[τΤ]/g,'t').replace(/[υΥ]/g,'y');
+ x=x.replace(/0/g,'o').replace(/1/g,'i').replace(/3/g,'e').replace(/4/g,'a').replace(/5/g,'s').replace(/7/g,'t').replace(/\+/g,'t');
+ return x.replace(/[^\p{L}\p{N}]+/gu,' ').replace(/\s+/g,' ').trim();
 }
+function numericNameBlocked(v){
+ var raw=mapUnicodeDigits(String(v||'')).toLowerCase();
+ /* Detecta os pares mesmo separados por letras: a6b7, e também 2016. */
+ var digits=raw.replace(/[^0-9]/g,'');
+ if(forbiddenPairs.some(function(pair){return digits.indexOf(pair)!==-1}))return true;
+ var norm=normalizedName(raw), compact=norm.replace(/\s+/g,'');
+ return Object.keys(numberWords).some(function(k){return numberWords[k].some(function(word){var w=normalizedName(word);return (' '+norm+' ').indexOf(' '+w+' ')!==-1||compact.indexOf(w.replace(/\s+/g,''))!==-1})});
+}
+var offensiveTerms=[
+ /* Português */ 'puta','puto','putinha','putaria','viado','bicha','baitola','faggot','retardado','retardada','mongoloide','arrombado','arrombada','caralho','cacete','porra','merda','bosta','cuzao','cuzão','fdp','filho da puta','filha da puta','vagabundo','vagabunda','desgraçado','desgracado','desgraçada','corno','babaca','otario','otário','idiota','imbecil','escroto','escrota','lixo humano','macaco','preto imundo','crioulo','judeu imundo',' nazista','viado','sapatão','sapatão','traveco','aberração','retard','kys','kill yourself','go kill yourself','vai se matar','se mata','some daqui e morre',
+ /* Inglês */ 'fuck','fucker','fucking','shit','bitch','bastard','asshole','dickhead','dick','cunt','motherfucker','slut','whore','nigger','nigga','chink','spic','kike','fag','faggot','dyke','retard','retarded','kill yourself','go die',' kys ',
+ /* Espanhol */ 'puta','puto','mierda','joder',' coño ','coño','pendejo','pendeja','cabron','cabrón','maricon','maricón','gilipollas','idiota','negro de mierda','matalo',
+ /* Francês */ 'putain','merde','connard','connasse','salope','enculé','encule','pédé','pede','nègre','negre',
+ /* Italiano */ 'cazzo','merda','stronzo','stronza','puttana','frocio','negro',
+ /* Alemão */ 'scheisse','scheiße','arschloch','hurensohn','schwuchtel','fotze',
+ /* Russo */ 'блядь','сука','хуй','пизда','мудак','пидор','убей себя',
+ /* Árabe, hindi, chinês, coreano, japonês: termos ofensivos comuns */ 'كلب','كس','قحبة','ابن الكلب','चूतिया','मादरचोद','भोसड़ी','गांडू','傻逼','操你妈','他妈的','狗杂种','씨발','개새끼','병신','죽어','くそ','ばか','死ね'
+];
+function deobfuscate(v){return normalizedName(v).replace(/(.)\1{2,}/g,'$1$1').replace(/\s+/g,' ').trim()}
+function offensiveNameBlocked(v){
+ var raw=String(v||'');var norm=deobfuscate(raw);var compact=norm.replace(/\s+/g,'');
+ /* Também testa a versão sem separadores para pegar p.u.t.a, p u t a, puuuta e joaoputa. */
+ return offensiveTerms.some(function(term){var t=deobfuscate(term);if(!t)return false;var tc=t.replace(/\s+/g,'');if(t.length<=3)return (' '+norm+' ').indexOf(' '+t+' ')!==-1||compact.indexOf(tc)!==-1;return (' '+norm+' ').indexOf(' '+t+' ')!==-1||compact.indexOf(tc)!==-1});
+}
+function blockedNameReason(v){return numericNameBlocked(v)||offensiveNameBlocked(v)}
+function blockedNameType(v){if(numericNameBlocked(v))return 'numbers';if(offensiveNameBlocked(v))return 'offensive';return ''}
 var auraAudio=new Audio('assets/sons/aura-betinha.ogg');
 var phonkAudio=new Audio('assets/sons/vai-jogando-vai-tomando-phonk.mp3');
 auraAudio.preload='auto';phonkAudio.preload='auto';
@@ -715,15 +742,18 @@ var nameWasBlocked=false;
 nameIn.addEventListener('input',function(){
   $('name-count').textContent=nameIn.value.length;
   if(nameStep)nameReset();
-  var isBlocked=blockedNameReason(nameIn.value);
-  if(isBlocked){
+  var reason=blockedNameType(nameIn.value),isBlocked=!!reason;
+  if(reason==='numbers'){
     nameSay('Tá achando que vai farmar aura betinha?',true);
-    if(!nameWasBlocked)playForbiddenSequence();
+    if(nameWasBlocked!=='numbers')playForbiddenSequence();
+  }else if(reason==='offensive'){
+    nameSay('Esse nome não é permitido. Escolha outro.',true);
+    if(nameWasBlocked==='numbers')stopForbiddenSequence();
   }else{
     nameSay('');
-    if(nameWasBlocked)stopForbiddenSequence();
+    if(nameWasBlocked==='numbers')stopForbiddenSequence();
   }
-  nameWasBlocked=isBlocked;
+  nameWasBlocked=reason;
 });   /* valida durante a digitação */
 
 nameBtn.onclick=function(){
@@ -732,7 +762,7 @@ nameBtn.onclick=function(){
 
   if(n.length<2){nameSay('Informe um nome com pelo menos 2 caracteres.');return}
 
-  if(blockedNameReason(n)){nameSay('Tá achando que vai farmar aura betinha?',true);playForbiddenSequence();return}
+  var blockedType=blockedNameType(n);if(blockedType==='numbers'){nameSay('Tá achando que vai farmar aura betinha?',true);playForbiddenSequence();return}if(blockedType==='offensive'){nameSay('Esse nome não é permitido. Escolha outro.',true);stopForbiddenSequence();return}
 
   if(!/^[\p{L}\p{N} ._-]+$/u.test(n)){nameSay('Utilize apenas letras, números, espaços, ponto, hífen e sublinhado.');return}
 
