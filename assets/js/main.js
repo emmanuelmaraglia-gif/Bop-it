@@ -961,26 +961,17 @@ function getHallDateKey(date) {
   return values.year + '-' + values.month + '-' + values.day;
 }
 
+
 function refreshHallIfDue(sn) {
-  if (!sn || !isAfterHallRefreshTime()) {
+  if (!sn || !Number.isFinite(Number(sn.t))) {
     return Promise.resolve(sn);
   }
 
-  if (!Number.isFinite(Number(sn.t))) {
-    return Promise.resolve(sn);
-  }
+  // Só tenta publicar outro ciclo após 24 horas e às 07h30
+  // ou depois, no horário de São Paulo.
+  var elapsed = Date.now() - Number(sn.t);
 
-  try {
-    var snapshotDate = getHallDateKey(new Date(Number(sn.t)));
-    var todayDate = getHallDateKey(new Date());
-
-    // Só atualiza depois das 07h30 de Brasília
-    // e quando o snapshot pertence a um dia anterior.
-    if (snapshotDate >= todayDate) {
-      return Promise.resolve(sn);
-    }
-  } catch (err) {
-    console.warn('Não foi possível verificar a data do Hall:', err);
+  if (elapsed < DAY || !isAfterHallRefreshTime()) {
     return Promise.resolve(sn);
   }
 
@@ -993,26 +984,81 @@ function refreshHallIfDue(sn) {
   });
 }
 
-
 function renderHall(force) {
-  $('hall-info').textContent = 'Consultando o ranking do ciclo atual...';
-  RANK.getSnap().then(function(sn) {
-    if (!sn) {
-      $('hall-info').textContent = 'O primeiro ciclo começará após a primeira pontuação válida.';
-      drawHall({ t: 0, facil: [], normal: [], dificil: [] });
-      return null;
-    }
-    return refreshHallIfDue(sn);
-  }).then(function(sn) {
-    if (sn) {
-      $('hall-info').textContent = 'Ranking do ciclo atual. A atualização é verificada após 07:30 (horário de São Paulo), quando o Hall é aberto.';
+  var info = $('hall-info');
+
+  info.textContent = 'Consultando o ranking do ciclo atual...';
+
+  RANK.getSnap()
+    .then(function (sn) {
+      if (!sn) {
+        // Ainda não existe snapshot: mostra o ranking disponível.
+        return buildHallSnapshot().catch(function (err) {
+          console.warn('Não foi possível criar o primeiro snapshot:', err);
+
+          return Promise.all(
+            DIFFS.map(function (d) {
+              return RANK.top(d[0]);
+            })
+          ).then(function (lists) {
+            return {
+              t: Date.now(),
+              facil: lists[0],
+              normal: lists[1],
+              dificil: lists[2]
+            };
+          });
+        });
+      }
+
+      var empty =
+        (!sn.facil || !sn.facil.length) &&
+        (!sn.normal || !sn.normal.length) &&
+        (!sn.dificil || !sn.dificil.length);
+
+      // Recuperação visual: se o snapshot estiver vazio, consulta
+      // os recordes salvos sem alterar o snapshot no Firebase.
+      if (empty) {
+        return Promise.all(
+          DIFFS.map(function (d) {
+            return RANK.top(d[0]);
+          })
+        ).then(function (lists) {
+          var recovered = {
+            t: sn.t,
+            facil: lists[0],
+            normal: lists[1],
+            dificil: lists[2]
+          };
+
+          recovered._recovered = true;
+          return recovered;
+        });
+      }
+
+      return refreshHallIfDue(sn);
+    })
+    .then(function (sn) {
+      if (!sn) return;
+
       drawHall(sn);
-    }
-  }).catch(function(err) {
-    $('hall-info').textContent = 'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
-    console.error('Erro ao carregar o Hall da Fama:', err);
-  });
+
+      if (sn._recovered) {
+        info.textContent =
+          'Recordes recuperados de players. O snapshot será atualizado quando permitido pelas regras do Firebase.';
+      } else {
+        info.textContent =
+          'Ranking do ciclo atual. A atualização é verificada quando o Hall é aberto após 07h30, horário de São Paulo.';
+      }
+    })
+    .catch(function (err) {
+      info.textContent =
+        'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
+
+      console.error('Erro ao carregar o Hall da Fama:', err);
+    });
 }
+
 
 
 $('open-hall').onclick=function(){show('hall')};
