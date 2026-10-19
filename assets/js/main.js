@@ -840,31 +840,33 @@ function drawHall(sn){
 
 }
 
-/* Mostra a fotografia guardada. Se ela tiver 24h ou mais, monta uma nova com os 10 melhores de cada dificuldade. */
-
+/* Hall por ciclos: a primeira pontuação válida inicia o relógio; depois, 24h exatas entre fotografias. */
+function buildHallSnapshot() {
+  return Promise.all(DIFFS.map(function(d) { return RANK.top(d[0]); }))
+    .then(function(l) {
+      var sn = { t: Date.now(), facil: l[0], normal: l[1], dificil: l[2] };
+      return RANK.setSnap(sn).then(function() { return RANK.getSnap(); }).then(function(saved) {
+        return saved || sn;
+      });
+    });
+}
 
 function renderHall(force) {
-  $('hall-info').textContent = 'Consultando as pontuações mais recentes...';
-
-  Promise.all(
-    DIFFS.map(function(d) {
-      return RANK.top(d[0]);
-    })
-  )
-    .then(function(l) {
-      drawHall({
-        t: Date.now(),
-        facil: l[0],
-        normal: l[1],
-        dificil: l[2]
-      });
-    })
-    .catch(function(err) {
-      $('hall-info').textContent =
-        'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
-
-      console.error('Erro ao carregar o Hall da Fama:', err);
-    });
+  $('hall-info').textContent = 'Consultando o ranking do ciclo atual...';
+  RANK.getSnap().then(function(sn) {
+    if (!sn) {
+      $('hall-info').textContent = 'O primeiro ciclo começará após a primeira pontuação válida.';
+      drawHall({ t: 0, facil: [], normal: [], dificil: [] });
+      return null;
+    }
+    if (Date.now() - sn.t >= DAY) return buildHallSnapshot();
+    return sn;
+  }).then(function(sn) {
+    if (sn) drawHall(sn);
+  }).catch(function(err) {
+    $('hall-info').textContent = 'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
+    console.error('Erro ao carregar o Hall da Fama:', err);
+  });
 }
 
 
@@ -891,7 +893,11 @@ function rankSend(df,pts){
     var mine=lsGet('apg-mine',{facil:0,normal:0,dificil:0});
     mine[df]=Math.max(+mine[df]||0,pts);
     lsSet('apg-mine',mine);
-    return saved;
+    /* Só uma pontuação válida pode iniciar o primeiro ciclo. */
+    return RANK.getSnap().then(function(sn) {
+      if (!sn || Date.now() - sn.t >= DAY) return buildHallSnapshot();
+      return sn;
+    }).then(function() { return saved; });
   });
 
 }
