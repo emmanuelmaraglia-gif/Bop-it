@@ -616,76 +616,94 @@ var RANK_FB={
 
   },
 
+  
+
   getSnap: function() {
-  return fbCall('/meta/snapshot').then(function(r) {
-    if (r.s === 404) return null;
-    if (r.s !== 200) throw new Error(r.s);
+    return fbCall('/meta/snapshot').then(function(r) {
+      if (r.s === 404) return null;
 
-    var f = r.j.fields || {};
-    var sn = JSON.parse(f.data.stringValue);
-    if (f.t && f.t.timestampValue) {
-  sn.t = Date.parse(f.t.timestampValue);
-} else if (f.t && f.t.stringValue) {
-  sn.t = Date.parse(f.t.stringValue);
-} else {
-  sn.t = NaN;
-}
+      if (r.s !== 200) {
+        throw new Error(
+          'Erro ao consultar snapshot: ' + r.s
+        );
+      }
 
-    if (!Number.isFinite(sn.t)) {
-      throw new Error('Horário do snapshot inválido.');
-    }
+      var f = (r.j || {}).fields || {};
 
-    return sn;
-  });
-},
+      if (!f.data || typeof f.data.stringValue !== 'string') {
+        throw new Error('Campo data do snapshot inválido.');
+      }
 
-setSnap: function(sn) {
-  var data = {
-    facil: sn.facil,
-    normal: sn.normal,
-    dificil: sn.dificil
-  };
+      var sn;
 
-  /*
-   * Usa o transform de timestamp do servidor.
-   * A gravação é feita por documents:commit.
-   */
-  var body = {
-    writes: [{
-      update: {
-        name: 'projects/' + FB.project +
-          '/databases/(default)/documents/meta/snapshot',
-        fields: {
-          data: {
-            stringValue: JSON.stringify(data)
+      try {
+        sn = JSON.parse(f.data.stringValue);
+      } catch (e) {
+        throw new Error('O conteúdo do snapshot não é um JSON válido.');
+      }
+
+      if (f.t && f.t.timestampValue) {
+        sn.t = Date.parse(f.t.timestampValue);
+      } else if (f.t && f.t.stringValue) {
+        sn.t = Date.parse(f.t.stringValue);
+      } else {
+        sn.t = NaN;
+      }
+
+      if (!Number.isFinite(sn.t)) {
+        throw new Error('Horário do snapshot inválido.');
+      }
+
+      return sn;
+    });
+  },
+
+  setSnap: function(sn) {
+    var data = {
+      facil: sn.facil,
+      normal: sn.normal,
+      dificil: sn.dificil
+    };
+
+    var body = {
+      writes: [{
+        update: {
+          name: 'projects/' + FB.project +
+            '/databases/(default)/documents/meta/snapshot',
+          fields: {
+            data: {
+              stringValue: JSON.stringify(data)
+            }
           }
-        }
-      },
-      updateMask: {
-        fieldPaths: ['data']
-      },
-      updateTransforms: [{
-        fieldPath: 't',
-        setToServerValue: 'REQUEST_TIME'
+        },
+        updateMask: {
+          fieldPaths: ['data']
+        },
+        updateTransforms: [{
+          fieldPath: 't',
+          setToServerValue: 'REQUEST_TIME'
+        }]
       }]
-    }]
-  };
+    };
 
-  return fbCall(':commit', {
-    m: 'POST',
-    b: body
-  }).then(function(r) {
-    if (r.s !== 200) {
-      throw new Error(
-        'Não foi possível gravar o snapshot (' + r.s + ').'
-      );
-    }
+    return fbCall(':commit', {
+      m: 'POST',
+      b: body
+    }).then(function(r) {
+      if (r.s !== 200) {
+        console.error('Erro do Firestore ao salvar snapshot:', r.j);
 
-    return true;
-  });
-}
+        throw new Error(
+          'Não foi possível gravar o snapshot (' + r.s + ').'
+        );
+      }
 
+      return true;
+    });
+  }
 };
+
+
 
 
 
