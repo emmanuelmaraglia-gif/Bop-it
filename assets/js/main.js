@@ -842,7 +842,9 @@ function drawHall(sn){
 
 }
 
-/* Hall por ciclos: a primeira pontuação válida inicia o relógio; depois, 24h exatas entre fotografias. */
+/* Hall por ciclos: a primeira pontuação válida inicia o relógio.
+   No plano gratuito, a atualização é verificada quando alguém abre o Hall após 07:30
+   (horário de São Paulo). As regras do Firestore continuam exigindo 24h desde o snapshot anterior. */
 function buildHallSnapshot() {
   return Promise.all(DIFFS.map(function(d) { return RANK.top(d[0]); }))
     .then(function(l) {
@@ -853,6 +855,35 @@ function buildHallSnapshot() {
     });
 }
 
+function isAfterHallRefreshTime() {
+  try {
+    var parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).formatToParts(new Date());
+    var hour = Number(parts.filter(function(p) { return p.type === 'hour'; })[0].value);
+    var minute = Number(parts.filter(function(p) { return p.type === 'minute'; })[0].value);
+    return hour > 7 || (hour === 7 && minute >= 30);
+  } catch (e) {
+    /* Fallback para o horário local do dispositivo se Intl/timeZone não estiver disponível. */
+    var now = new Date();
+    return now.getHours() > 7 || (now.getHours() === 7 && now.getMinutes() >= 30);
+  }
+}
+
+function refreshHallIfDue(sn) {
+  if (!sn || !isAfterHallRefreshTime()) return Promise.resolve(sn);
+  /* Evita tentar atualizar antes das 24h exigidas pelas regras atuais do Firestore. */
+  if (!Number.isFinite(Number(sn.t)) || Date.now() - Number(sn.t) < 24 * 60 * 60 * 1000) {
+    return Promise.resolve(sn);
+  }
+  return buildHallSnapshot().catch(function(err) {
+    /* Se outro aparelho atualizou primeiro ou as regras recusarem a gravação,
+       mantém o snapshot existente e deixa o Hall disponível. */
+    console.warn('O Hall da Fama ainda não pôde ser atualizado:', err);
+    return sn;
+  });
+}
+
 function renderHall(force) {
   $('hall-info').textContent = 'Consultando o ranking do ciclo atual...';
   RANK.getSnap().then(function(sn) {
@@ -861,11 +892,12 @@ function renderHall(force) {
       drawHall({ t: 0, facil: [], normal: [], dificil: [] });
       return null;
     }
-    /* O ciclo vencido é atualizado pelo agendador diário às 07:30 (São Paulo).
-       O navegador apenas lê a fotografia; não pode adiantar a atualização. */
-    return sn;
+    return refreshHallIfDue(sn);
   }).then(function(sn) {
-    if (sn) drawHall(sn);
+    if (sn) {
+      $('hall-info').textContent = 'Ranking do ciclo atual. A atualização é verificada após 07:30 (horário de São Paulo), quando o Hall é aberto.';
+      drawHall(sn);
+    }
   }).catch(function(err) {
     $('hall-info').textContent = 'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
     console.error('Erro ao carregar o Hall da Fama:', err);
