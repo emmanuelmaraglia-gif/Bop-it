@@ -631,11 +631,13 @@ var RANK_FB={
   /* grava a fotografia com a hora do SERVIDOR; as regras recusam se tiver menos de 24h (outro aparelho já atualizou) */
 
   setSnap:function(sn){
-
+    /* PATCH cria o documento se ainda não existir; o commit update anterior falhava
+       quando meta/snapshot tinha sido apagado. O agendador grava o horário do servidor. */
     var d={facil:sn.facil,normal:sn.normal,dificil:sn.dificil};
-
-    return fbCall(':commit',{m:'POST',b:{writes:[{update:{name:'projects/'+FB.project+'/databases/(default)/documents/meta/snapshot',fields:{data:{stringValue:JSON.stringify(d)}}},updateTransforms:[{fieldPath:'t',setToServerValue:'REQUEST_TIME'}]}]}}).then(function(){},function(){});
-
+    return fbCall('/meta/snapshot',{m:'PATCH',q:'&updateMask.fieldPaths=data&updateMask.fieldPaths=t',b:{fields:{data:{stringValue:JSON.stringify(d)},t:{timestampValue:new Date().toISOString()}}}}).then(function(r){
+      if(r.s!==200) throw new Error('Não foi possível criar/atualizar meta/snapshot ('+r.s+').');
+      return true;
+    });
   }
 
 };
@@ -859,7 +861,8 @@ function renderHall(force) {
       drawHall({ t: 0, facil: [], normal: [], dificil: [] });
       return null;
     }
-    if (Date.now() - sn.t >= DAY) return buildHallSnapshot();
+    /* O ciclo vencido é atualizado pelo agendador diário às 07:30 (São Paulo).
+       O navegador apenas lê a fotografia; não pode adiantar a atualização. */
     return sn;
   }).then(function(sn) {
     if (sn) drawHall(sn);
@@ -895,7 +898,8 @@ function rankSend(df,pts){
     lsSet('apg-mine',mine);
     /* Só uma pontuação válida pode iniciar o primeiro ciclo. */
     return RANK.getSnap().then(function(sn) {
-      if (!sn || Date.now() - sn.t >= DAY) return buildHallSnapshot();
+      /* A primeira pontuação válida cria a fotografia inicial. Depois, só o agendador atualiza. */
+      if (!sn) return buildHallSnapshot();
       return sn;
     }).then(function() { return saved; });
   });
