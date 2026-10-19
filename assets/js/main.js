@@ -616,29 +616,74 @@ var RANK_FB={
 
   },
 
-  getSnap:function(){   /* lê a "fotografia" do ranking (meta/snapshot) */
+  getSnap: function() {
+  return fbCall('/meta/snapshot').then(function(r) {
+    if (r.s === 404) return null;
+    if (r.s !== 200) throw new Error(r.s);
 
-    return fbCall('/meta/snapshot').then(function(r){
+    var f = r.j.fields || {};
+    var sn = JSON.parse(f.data.stringValue);
+    if (f.t && f.t.timestampValue) {
+  sn.t = Date.parse(f.t.timestampValue);
+} else if (f.t && f.t.stringValue) {
+  sn.t = Date.parse(f.t.stringValue);
+} else {
+  sn.t = NaN;
+}
 
-      if(r.s===404)return null;if(r.s!==200)throw new Error(r.s);
+    if (!Number.isFinite(sn.t)) {
+      throw new Error('Horário do snapshot inválido.');
+    }
 
-      var f=r.j.fields||{},sn=JSON.parse(f.data.stringValue);sn.t=Date.parse(f.t.timestampValue);return sn;
+    return sn;
+  });
+},
 
-    });
+setSnap: function(sn) {
+  var data = {
+    facil: sn.facil,
+    normal: sn.normal,
+    dificil: sn.dificil
+  };
 
-  },
+  /*
+   * Usa o transform de timestamp do servidor.
+   * A gravação é feita por documents:commit.
+   */
+  var body = {
+    writes: [{
+      update: {
+        name: 'projects/' + FB.project +
+          '/databases/(default)/documents/meta/snapshot',
+        fields: {
+          data: {
+            stringValue: JSON.stringify(data)
+          }
+        }
+      },
+      updateMask: {
+        fieldPaths: ['data']
+      },
+      updateTransforms: [{
+        fieldPath: 't',
+        setToServerValue: 'REQUEST_TIME'
+      }]
+    }]
+  };
 
-  /* grava a fotografia com a hora do SERVIDOR; as regras recusam se tiver menos de 24h (outro aparelho já atualizou) */
+  return fbCall(':commit', {
+    m: 'POST',
+    b: body
+  }).then(function(r) {
+    if (r.s !== 200) {
+      throw new Error(
+        'Não foi possível gravar o snapshot (' + r.s + ').'
+      );
+    }
 
-  setSnap:function(sn){
-    /* PATCH cria o documento se ainda não existir; o commit update anterior falhava
-       quando meta/snapshot tinha sido apagado. O agendador grava o horário do servidor. */
-    var d={facil:sn.facil,normal:sn.normal,dificil:sn.dificil};
-    return fbCall('/meta/snapshot',{m:'PATCH',q:'&updateMask.fieldPaths=data&updateMask.fieldPaths=t',b:{fields:{data:{stringValue:JSON.stringify(d)},t:{timestampValue:new Date().toISOString()}}}}).then(function(r){
-      if(r.s!==200) throw new Error('Não foi possível criar/atualizar meta/snapshot ('+r.s+').');
-      return true;
-    });
-  }
+    return true;
+  });
+}
 
 };
 
@@ -858,31 +903,78 @@ function buildHallSnapshot() {
 function isAfterHallRefreshTime() {
   try {
     var parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
     }).formatToParts(new Date());
-    var hour = Number(parts.filter(function(p) { return p.type === 'hour'; })[0].value);
-    var minute = Number(parts.filter(function(p) { return p.type === 'minute'; })[0].value);
+
+    var hour = Number(parts.find(function(p) {
+      return p.type === 'hour';
+    }).value);
+
+    var minute = Number(parts.find(function(p) {
+      return p.type === 'minute';
+    }).value);
+
     return hour > 7 || (hour === 7 && minute >= 30);
   } catch (e) {
-    /* Fallback para o horário local do dispositivo se Intl/timeZone não estiver disponível. */
-    var now = new Date();
-    return now.getHours() > 7 || (now.getHours() === 7 && now.getMinutes() >= 30);
+    console.error('Não foi possível verificar o horário de Brasília:', e);
+    return false;
   }
 }
 
+
+function getHallDateKey(date) {
+  var parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  var values = {};
+  parts.forEach(function (p) {
+    if (p.type !== 'literal') {
+      values[p.type] = p.value;
+    }
+  });
+
+  return values.year + '-' + values.month + '-' + values.day;
+}
+
 function refreshHallIfDue(sn) {
-  if (!sn || !isAfterHallRefreshTime()) return Promise.resolve(sn);
-  /* Evita tentar atualizar antes das 24h exigidas pelas regras atuais do Firestore. */
-  if (!Number.isFinite(Number(sn.t)) || Date.now() - Number(sn.t) < 24 * 60 * 60 * 1000) {
+  if (!sn || !isAfterHallRefreshTime()) {
     return Promise.resolve(sn);
   }
-  return buildHallSnapshot().catch(function(err) {
-    /* Se outro aparelho atualizou primeiro ou as regras recusarem a gravação,
-       mantém o snapshot existente e deixa o Hall disponível. */
-    console.warn('O Hall da Fama ainda não pôde ser atualizado:', err);
+
+  if (!Number.isFinite(Number(sn.t))) {
+    return Promise.resolve(sn);
+  }
+
+  try {
+    var snapshotDate = getHallDateKey(new Date(Number(sn.t)));
+    var todayDate = getHallDateKey(new Date());
+
+    // Só atualiza depois das 07h30 de Brasília
+    // e quando o snapshot pertence a um dia anterior.
+    if (snapshotDate >= todayDate) {
+      return Promise.resolve(sn);
+    }
+  } catch (err) {
+    console.warn('Não foi possível verificar a data do Hall:', err);
+    return Promise.resolve(sn);
+  }
+
+  return buildHallSnapshot().catch(function (err) {
+    console.warn(
+      'O Hall da Fama ainda não pôde ser atualizado:',
+      err
+    );
     return sn;
   });
 }
+
 
 function renderHall(force) {
   $('hall-info').textContent = 'Consultando o ranking do ciclo atual...';
