@@ -604,16 +604,16 @@ var RANK_FB={
     return saveMax();
   },
 
-  top:function(df){   /* os 10 maiores de uma dificuldade (só 10 leituras) */
-
-    return fbCall(':runQuery',{m:'POST',b:{structuredQuery:{from:[{collectionId:'players'}],orderBy:[{field:{fieldPath:df},direction:'DESCENDING'}],limit:10}}}).then(function(r){
-
+  top:function(df){   /* Top 10 atual: filtra pontuação positiva antes do limite. */
+    return fbCall(':runQuery',{m:'POST',b:{structuredQuery:{
+      from:[{collectionId:'players'}],
+      where:{fieldFilter:{field:{fieldPath:df},op:'GREATER_THAN',value:{integerValue:'0'}}},
+      orderBy:[{field:{fieldPath:df},direction:'DESCENDING'}],
+      limit:10
+    }}}).then(function(r){
       if(r.s!==200)throw new Error(r.s);
-
-      return (r.j||[]).filter(function(x){return x.document}).map(function(x){return {n:x.document.fields.name.stringValue,s:fInt(x.document.fields,df)}}).filter(function(x){return x.s>0});
-
+      return (r.j||[]).filter(function(x){return x.document}).map(function(x){return {n:x.document.fields.name.stringValue,s:fInt(x.document.fields,df)}});
     });
-
   },
 
   
@@ -984,81 +984,26 @@ function refreshHallIfDue(sn) {
   });
 }
 
-function renderHall(force) {
+function renderHall() {
   var info = $('hall-info');
+  info.textContent = 'Consultando os recordes atuais...';
 
-  info.textContent = 'Consultando o ranking do ciclo atual...';
-
-  RANK.getSnap()
-    .then(function (sn) {
-      if (!sn) {
-        // Ainda não existe snapshot: mostra o ranking disponível.
-        return buildHallSnapshot().catch(function (err) {
-          console.warn('Não foi possível criar o primeiro snapshot:', err);
-
-          return Promise.all(
-            DIFFS.map(function (d) {
-              return RANK.top(d[0]);
-            })
-          ).then(function (lists) {
-            return {
-              t: Date.now(),
-              facil: lists[0],
-              normal: lists[1],
-              dificil: lists[2]
-            };
-          });
-        });
-      }
-
-      var empty =
-        (!sn.facil || !sn.facil.length) &&
-        (!sn.normal || !sn.normal.length) &&
-        (!sn.dificil || !sn.dificil.length);
-
-      // Recuperação visual: se o snapshot estiver vazio, consulta
-      // os recordes salvos sem alterar o snapshot no Firebase.
-      if (empty) {
-        return Promise.all(
-          DIFFS.map(function (d) {
-            return RANK.top(d[0]);
-          })
-        ).then(function (lists) {
-          var recovered = {
-            t: sn.t,
-            facil: lists[0],
-            normal: lists[1],
-            dificil: lists[2]
-          };
-
-          recovered._recovered = true;
-          return recovered;
-        });
-      }
-
-      return refreshHallIfDue(sn);
+  /* O Hall lê diretamente /players; não depende do snapshot nem do ciclo de 24 horas. */
+  Promise.all(DIFFS.map(function(d) { return RANK.top(d[0]); }))
+    .then(function(lists) {
+      drawHall({
+        t: Date.now(),
+        facil: lists[0],
+        normal: lists[1],
+        dificil: lists[2]
+      });
+      info.textContent = 'Ranking atualizado com os recordes atuais.';
     })
-    .then(function (sn) {
-      if (!sn) return;
-
-      drawHall(sn);
-
-      if (sn._recovered) {
-        info.textContent =
-          'Recordes recuperados de players. O snapshot será atualizado quando permitido pelas regras do Firebase.';
-      } else {
-        info.textContent =
-          'Ranking do ciclo atual. A atualização é verificada quando o Hall é aberto após 07h30, horário de São Paulo.';
-      }
-    })
-    .catch(function (err) {
-      info.textContent =
-        'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
-
+    .catch(function(err) {
+      info.textContent = 'Não foi possível carregar o ranking. Verifique a conexão e as regras do Firebase.';
       console.error('Erro ao carregar o Hall da Fama:', err);
     });
 }
-
 
 
 $('open-hall').onclick=function(){show('hall')};
@@ -1084,12 +1029,8 @@ function rankSend(df,pts){
     var mine=lsGet('apg-mine',{facil:0,normal:0,dificil:0});
     mine[df]=Math.max(+mine[df]||0,pts);
     lsSet('apg-mine',mine);
-    /* Só uma pontuação válida pode iniciar o primeiro ciclo. */
-    return RANK.getSnap().then(function(sn) {
-      /* A primeira pontuação válida cria a fotografia inicial. Depois, só o agendador atualiza. */
-      if (!sn) return buildHallSnapshot();
-      return sn;
-    }).then(function() { return saved; });
+    /* O Hall consulta /players diretamente; nenhuma fotografia precisa ser criada. */
+    return saved;
   });
 
 }
